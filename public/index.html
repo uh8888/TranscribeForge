@@ -439,7 +439,7 @@
   <!-- ── Main ────────────────────────────────────────────────────────────── -->
   <main class="main">
     <h1 class="page-title">Video Transkription</h1>
-    <p class="page-subtitle">Video hochladen → Audio extrahieren → Whisper API → Fertig</p>
+    <p class="page-subtitle">Video hochladen → Audio + Frames → Whisper API + KI-Bildanalyse → Fertig</p>
 
     <!-- Upload Card -->
     <div class="m-card">
@@ -453,15 +453,35 @@
       </div>
     </div>
 
-    <!-- Language Card -->
+    <!-- Language + Frame Interval Card -->
     <div class="m-card">
-      <div class="m-card-label">Sprache</div>
+      <div class="m-card-label">Einstellungen</div>
       <div class="lang-row">
         <span class="lang-label">Transkriptionssprache:</span>
         <select class="m-select" id="languageSelect">
           <option value="de" selected>Deutsch (DE)</option>
           <option value="en">Englisch (EN)</option>
           <option value="auto">Automatisch erkennen</option>
+        </select>
+      </div>
+      <div class="lang-row" style="margin-top:12px">
+        <span class="lang-label">Frame-Analyse alle:</span>
+        <select class="m-select" id="frameIntervalSelect">
+          <option value="1">1 Sekunde</option>
+          <option value="2">2 Sekunden</option>
+          <option value="3" selected>3 Sekunden</option>
+          <option value="5">5 Sekunden</option>
+          <option value="10">10 Sekunden</option>
+          <option value="30">30 Sekunden</option>
+          <option value="60">60 Sekunden</option>
+        </select>
+      </div>
+      <div class="lang-row" style="margin-top:12px">
+        <span class="lang-label">KI-Modell (Frames):</span>
+        <select class="m-select" id="frameModelSelect">
+          <option value="claude-haiku-4-5-20251001" selected>Haiku — ~$0.001/Frame (günstig)</option>
+          <option value="claude-sonnet-4-6">Sonnet — ~$0.005/Frame (besser)</option>
+          <option value="claude-opus-4-7">Opus — ~$0.026/Frame (beste Qualität)</option>
         </select>
       </div>
     </div>
@@ -480,7 +500,7 @@
       <div class="progress-steps">
         <div class="progress-step" id="step1">
           <div class="step-icon" id="step1-icon">1</div>
-          <span>Audio extrahieren…</span>
+          <span>Audio + Frames extrahieren…</span>
         </div>
         <div class="progress-step" id="step2">
           <div class="step-icon" id="step2-icon">2</div>
@@ -488,6 +508,10 @@
         </div>
         <div class="progress-step" id="step3">
           <div class="step-icon" id="step3-icon">3</div>
+          <span>KI-Bildanalyse…</span>
+        </div>
+        <div class="progress-step" id="step4">
+          <div class="step-icon" id="step4-icon">4</div>
           <span>Fertig</span>
         </div>
       </div>
@@ -498,12 +522,18 @@
       <div class="m-card-label">Transkript</div>
       <div class="transcript-box" id="transcriptBox"></div>
       <div class="transcript-actions">
-        <button class="m-btn m-btn-ghost" id="copyBtn">
-          📋 Kopieren
-        </button>
-        <button class="m-btn m-btn-ghost" id="downloadBtn">
-          ⬇ TXT herunterladen
-        </button>
+        <button class="m-btn m-btn-ghost" id="copyBtn">📋 Kopieren</button>
+        <button class="m-btn m-btn-ghost" id="downloadBtn">⬇ TXT herunterladen</button>
+      </div>
+    </div>
+
+    <!-- Frame Analysis Card -->
+    <div class="m-card transcript-area" id="frameArea" style="margin-top:16px">
+      <div class="m-card-label">Bildschirm-Analyse (<span id="frameCount">0</span> Frames, 1 alle 3 Sek.)</div>
+      <div class="transcript-box" id="frameBox" style="white-space:pre-wrap;font-size:0.82rem;line-height:1.6"></div>
+      <div class="transcript-actions">
+        <button class="m-btn m-btn-ghost" id="copyFrameBtn">📋 Analyse kopieren</button>
+        <button class="m-btn m-btn-ghost" id="downloadAllBtn">⬇ Alles herunterladen</button>
       </div>
     </div>
 
@@ -529,10 +559,15 @@
     const fileInput     = document.getElementById('fileInput');
     const uploadFilename = document.getElementById('uploadFilename');
     const transcribeBtn = document.getElementById('transcribeBtn');
-    const languageSelect = document.getElementById('languageSelect');
+    const languageSelect      = document.getElementById('languageSelect');
+    const frameIntervalSelect = document.getElementById('frameIntervalSelect');
+    const frameModelSelect    = document.getElementById('frameModelSelect');
     const progressArea  = document.getElementById('progressArea');
     const transcriptArea = document.getElementById('transcriptArea');
-    const transcriptBox = document.getElementById('transcriptBox');
+    const transcriptBox  = document.getElementById('transcriptBox');
+    const frameArea      = document.getElementById('frameArea');
+    const frameBox       = document.getElementById('frameBox');
+    const frameCount     = document.getElementById('frameCount');
     const errorBanner   = document.getElementById('errorBanner');
     const copyBtn       = document.getElementById('copyBtn');
     const downloadBtn   = document.getElementById('downloadBtn');
@@ -590,7 +625,9 @@
       // Reset UI
       errorBanner.classList.remove('visible');
       transcriptArea.classList.remove('visible');
-      transcriptBox.textContent = '';
+      transcriptBox.textContent  = '';
+      frameArea.classList.remove('visible');
+      frameBox.textContent = '';
       resetSteps();
 
       // Show progress
@@ -605,6 +642,8 @@
       const formData = new FormData();
       formData.append('video', selectedFile);
       formData.append('language', languageSelect.value);
+      formData.append('frameInterval', frameIntervalSelect.value);
+      formData.append('frameModel', frameModelSelect.value);
 
       // Simulate step progression while waiting
       const step2Timer = setTimeout(() => setStep(2, 'active'), 3000);
@@ -623,14 +662,19 @@
           throw new Error(data.error || `HTTP ${response.status}`);
         }
 
-        // Mark all steps done
         setStep(1, 'done');
         setStep(2, 'done');
         setStep(3, 'done');
+        setStep(4, 'done');
 
-        // Show transcript
         transcriptBox.textContent = data.transcript;
         transcriptArea.classList.add('visible');
+
+        if (data.frameAnalysis) {
+          frameCount.textContent = data.frameCount || 0;
+          frameBox.textContent   = data.frameAnalysis;
+          frameArea.classList.add('visible');
+        }
 
       } catch (err) {
         clearTimeout(step2Timer);
@@ -657,21 +701,44 @@
       }
     });
 
-    // ── Download ────────────────────────────────────────────────────────────
+    // ── Download Transcript ──────────────────────────────────────────────────
     downloadBtn.addEventListener('click', () => {
       const text = transcriptBox.textContent;
       if (!text) return;
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const baseName = selectedFile
-        ? selectedFile.name.replace(/\.[^.]+$/, '')
-        : 'transkript';
-      a.download = `${baseName}-transkript.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const baseName = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'transkript';
+      dlText(text, `${baseName}-transkript.txt`);
     });
+
+    // ── Copy Frame Analysis ──────────────────────────────────────────────────
+    document.getElementById('copyFrameBtn').addEventListener('click', async () => {
+      const text = frameBox.textContent;
+      if (!text) return;
+      const btn = document.getElementById('copyFrameBtn');
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '✓ Kopiert!';
+      } catch { btn.textContent = 'Fehler'; }
+      setTimeout(() => { btn.innerHTML = '📋 Analyse kopieren'; }, 2000);
+    });
+
+    // ── Download All ─────────────────────────────────────────────────────────
+    document.getElementById('downloadAllBtn').addEventListener('click', () => {
+      const transcript = transcriptBox.textContent;
+      const frames     = frameBox.textContent;
+      if (!transcript && !frames) return;
+      const baseName = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'analyse';
+      const combined = `=== TRANSKRIPT ===\n\n${transcript}\n\n=== BILDSCHIRM-ANALYSE ===\n\n${frames}`;
+      dlText(combined, `${baseName}-komplett.txt`);
+    });
+
+    function dlText(text, filename) {
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })),
+        download: filename,
+      });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
   </script>
 </body>
 </html>
