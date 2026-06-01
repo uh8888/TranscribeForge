@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TranscribeForge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── CSS Variables ─────────────────────────────────────────────────── */
+    :root {
+      --bg-base:        #000000;
+      --bg-surface:     #0A0A0A;
+      --bg-elevated:    #141414;
+      --bg-hover:       #1A1A1A;
+      --border:         #1F1F1F;
+      --border-strong:  #2A2A2A;
+      --text-primary:   #FFFFFF;
+      --text-secondary: #A8A8A8;
+      --text-muted:     #6B6B6B;
+      --accent:         #BFFF00;
+      --accent-hover:   #A8E600;
+      --accent-soft:    rgba(191,255,0,0.1);
+      --accent-glow:    rgba(191,255,0,0.25);
+      --danger:         #FF3B3B;
+      --success:        #BFFF00;
+      --warning:        #FFB800;
+    }
+
+    body.light {
+      --bg-base:        #F5F5F5;
+      --bg-surface:     #FFFFFF;
+      --bg-elevated:    #F0F0F0;
+      --bg-hover:       #E8E8E8;
+      --border:         #E0E0E0;
+      --border-strong:  #CCCCCC;
+      --text-primary:   #111111;
+      --text-secondary: #555555;
+      --text-muted:     #888888;
+      --accent:         #7ACC00;
+      --accent-hover:   #6AB800;
+      --accent-soft:    rgba(122,204,0,0.1);
+      --accent-glow:    rgba(122,204,0,0.25);
+    }
+
+    /* ── Reset & Base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────── */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 56px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 12px;
+    }
+
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      color: #000;
+      font-weight: 800;
+      font-size: 13px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      letter-spacing: -0.5px;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .logo-text .brand {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .logo-text .sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .header-spacer { flex: 1; }
+
+    .theme-toggle {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    /* ── Main Layout ───────────────────────────────────────────────────── */
+    .main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    .page-title {
+      font-size: 28px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .page-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 36px;
+    }
+
+    /* ── Card ──────────────────────────────────────────────────────────── */
+    .m-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .m-card-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── Upload Zone ───────────────────────────────────────────────────── */
+    .upload-zone {
+      border: 2px dashed var(--accent);
+      border-radius: 8px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      position: relative;
+    }
+
+    .upload-zone:hover,
+    .upload-zone.drag-over {
+      background: var(--accent-soft);
+      border-color: var(--accent-hover);
+    }
+
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .upload-icon {
+      font-size: 36px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .upload-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .upload-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .upload-filename {
+      margin-top: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Language Selector ─────────────────────────────────────────────── */
+    .lang-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .lang-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .m-select {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 12px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .m-select:focus {
+      border-color: var(--accent);
+    }
+
+    /* ── Buttons ───────────────────────────────────────────────────────── */
+    .m-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .m-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .m-btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .m-btn-primary:not(:disabled):hover {
+      background: var(--accent-hover);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .m-btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-strong);
+    }
+
+    .m-btn-ghost:not(:disabled):hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .m-btn-full { width: 100%; }
+
+    /* ── Spinner ───────────────────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #000;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* ── Progress ──────────────────────────────────────────────────────── */
+    .progress-area {
+      display: none;
+    }
+
+    .progress-area.visible { display: block; }
+
+    .progress-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .progress-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .progress-step.active { color: var(--text-primary); }
+    .progress-step.done   { color: var(--success); }
+
+    .step-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .progress-step.active .step-icon {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .progress-step.done .step-icon {
+      background: var(--success);
+      border-color: var(--success);
+      color: #000;
+    }
+
+    /* ── Transcript Output ─────────────────────────────────────────────── */
+    .transcript-area {
+      display: none;
+    }
+
+    .transcript-area.visible { display: block; }
+
+    .transcript-box {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 16px;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text-primary);
+      min-height: 120px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 14px;
+      resize: vertical;
+    }
+
+    .transcript-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    /* ── Error Banner ──────────────────────────────────────────────────── */
+    .error-banner {
+      display: none;
+      background: rgba(255,59,59,0.1);
+      border: 1px solid var(--danger);
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--danger);
+      margin-top: 16px;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── Divider ───────────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 24px 0;
+    }
+
+    /* ── Scrollbar ─────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="logo-mark">TF</div>
+    <div class="logo-text">
+      <span class="brand">TranscribeForge</span>
+      <span class="sub">BuHa OptiMax</span>
+    </div>
+    <div class="header-spacer"></div>
+    <button class="theme-toggle" id="themeToggle" title="Theme wechseln">🌙</button>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main class="main">
+    <h1 class="page-title">Video Transkription</h1>
+    <p class="page-subtitle">Video hochladen → Audio extrahieren → Whisper API → Fertig</p>
+
+    <!-- Upload Card -->
+    <div class="m-card">
+      <div class="m-card-label">Video-Datei</div>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept=".mp4,.mov,.webm,.mkv,.avi,video/*" />
+        <span class="upload-icon">🎬</span>
+        <div class="upload-text">Video hier ablegen oder klicken</div>
+        <div class="upload-hint">MP4, MOV, WebM, MKV — bis zu 500 MB</div>
+        <div class="upload-filename" id="uploadFilename" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- Language Card -->
+    <div class="m-card">
+      <div class="m-card-label">Sprache</div>
+      <div class="lang-row">
+        <span class="lang-label">Transkriptionssprache:</span>
+        <select class="m-select" id="languageSelect">
+          <option value="de" selected>Deutsch (DE)</option>
+          <option value="en">Englisch (EN)</option>
+          <option value="auto">Automatisch erkennen</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Submit Button -->
+    <button class="m-btn m-btn-primary m-btn-full" id="transcribeBtn" disabled>
+      Transkribieren
+    </button>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="errorBanner"></div>
+
+    <!-- Progress Card -->
+    <div class="m-card progress-area" id="progressArea" style="margin-top:16px">
+      <div class="m-card-label">Fortschritt</div>
+      <div class="progress-steps">
+        <div class="progress-step" id="step1">
+          <div class="step-icon" id="step1-icon">1</div>
+          <span>Audio extrahieren…</span>
+        </div>
+        <div class="progress-step" id="step2">
+          <div class="step-icon" id="step2-icon">2</div>
+          <span>Whisper API…</span>
+        </div>
+        <div class="progress-step" id="step3">
+          <div class="step-icon" id="step3-icon">3</div>
+          <span>Fertig</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transcript Card -->
+    <div class="m-card transcript-area" id="transcriptArea" style="margin-top:16px">
+      <div class="m-card-label">Transkript</div>
+      <div class="transcript-box" id="transcriptBox"></div>
+      <div class="transcript-actions">
+        <button class="m-btn m-btn-ghost" id="copyBtn">
+          📋 Kopieren
+        </button>
+        <button class="m-btn m-btn-ghost" id="downloadBtn">
+          ⬇ TXT herunterladen
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // ── Theme Toggle ────────────────────────────────────────────────────────
+    const themeToggle = document.getElementById('themeToggle');
+    const savedTheme = localStorage.getItem('tf-theme') || 'dark';
+    if (savedTheme === 'light') {
+      document.body.classList.add('light');
+      themeToggle.textContent = '☀';
+    }
+
+    themeToggle.addEventListener('click', () => {
+      const isLight = document.body.classList.toggle('light');
+      themeToggle.textContent = isLight ? '☀' : '🌙';
+      localStorage.setItem('tf-theme', isLight ? 'light' : 'dark');
+    });
+
+    // ── File Upload ─────────────────────────────────────────────────────────
+    const uploadZone    = document.getElementById('uploadZone');
+    const fileInput     = document.getElementById('fileInput');
+    const uploadFilename = document.getElementById('uploadFilename');
+    const transcribeBtn = document.getElementById('transcribeBtn');
+    const languageSelect = document.getElementById('languageSelect');
+    const progressArea  = document.getElementById('progressArea');
+    const transcriptArea = document.getElementById('transcriptArea');
+    const transcriptBox = document.getElementById('transcriptBox');
+    const errorBanner   = document.getElementById('errorBanner');
+    const copyBtn       = document.getElementById('copyBtn');
+    const downloadBtn   = document.getElementById('downloadBtn');
+
+    let selectedFile = null;
+
+    function showFile(file) {
+      selectedFile = file;
+      uploadFilename.textContent = `📁 ${file.name}`;
+      uploadFilename.style.display = 'inline-flex';
+      transcribeBtn.disabled = false;
+    }
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) showFile(fileInput.files[0]);
+    });
+
+    // Drag & Drop
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('drag-over');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('drag-over');
+    });
+
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) showFile(file);
+    });
+
+    // ── Progress Steps ──────────────────────────────────────────────────────
+    function setStep(stepNum, state) {
+      // state: 'active' | 'done' | ''
+      const el = document.getElementById(`step${stepNum}`);
+      const icon = document.getElementById(`step${stepNum}-icon`);
+      el.className = `progress-step ${state}`;
+      if (state === 'done') icon.textContent = '✓';
+    }
+
+    function resetSteps() {
+      [1, 2, 3].forEach(n => setStep(n, ''));
+      document.getElementById('step1-icon').textContent = '1';
+      document.getElementById('step2-icon').textContent = '2';
+      document.getElementById('step3-icon').textContent = '3';
+    }
+
+    // ── Transcribe ──────────────────────────────────────────────────────────
+    transcribeBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      // Reset UI
+      errorBanner.classList.remove('visible');
+      transcriptArea.classList.remove('visible');
+      transcriptBox.textContent = '';
+      resetSteps();
+
+      // Show progress
+      progressArea.classList.add('visible');
+      setStep(1, 'active');
+
+      // Disable button, show spinner
+      transcribeBtn.disabled = true;
+      transcribeBtn.innerHTML = '<div class="spinner"></div> Verarbeite…';
+
+      // Build form data
+      const formData = new FormData();
+      formData.append('video', selectedFile);
+      formData.append('language', languageSelect.value);
+
+      // Simulate step progression while waiting
+      const step2Timer = setTimeout(() => setStep(2, 'active'), 3000);
+
+      try {
+        const response = await fetch('/api/transcribe', {
+          method: 'POST',
+          body: formData,
+        });
+
+        clearTimeout(step2Timer);
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+
+        // Mark all steps done
+        setStep(1, 'done');
+        setStep(2, 'done');
+        setStep(3, 'done');
+
+        // Show transcript
+        transcriptBox.textContent = data.transcript;
+        transcriptArea.classList.add('visible');
+
+      } catch (err) {
+        clearTimeout(step2Timer);
+        progressArea.classList.remove('visible');
+        errorBanner.textContent = `Fehler: ${err.message}`;
+        errorBanner.classList.add('visible');
+      } finally {
+        transcribeBtn.disabled = false;
+        transcribeBtn.innerHTML = 'Transkribieren';
+      }
+    });
+
+    // ── Copy ────────────────────────────────────────────────────────────────
+    copyBtn.addEventListener('click', async () => {
+      const text = transcriptBox.textContent;
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = '✓ Kopiert!';
+        setTimeout(() => { copyBtn.innerHTML = '📋 Kopieren'; }, 2000);
+      } catch {
+        copyBtn.textContent = 'Fehler';
+        setTimeout(() => { copyBtn.innerHTML = '📋 Kopieren'; }, 2000);
+      }
+    });
+
+    // ── Download ────────────────────────────────────────────────────────────
+    downloadBtn.addEventListener('click', () => {
+      const text = transcriptBox.textContent;
+      if (!text) return;
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const baseName = selectedFile
+        ? selectedFile.name.replace(/\.[^.]+$/, '')
+        : 'transkript';
+      a.download = `${baseName}-transkript.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
