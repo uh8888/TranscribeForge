@@ -341,6 +341,51 @@
     }
     .error-banner.visible { display: block; }
 
+    /* ── YouTube Connect ─────────────────────────────────────────────────── */
+    .yt-connect-bar {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 14px; padding: 10px 14px;
+      border-radius: 6px; border: 1px solid var(--border-strong);
+      background: var(--bg-elevated); font-size: 13px;
+    }
+    .yt-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: var(--text-muted);
+    }
+    .yt-dot.connected   { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+    .yt-dot.connecting  { background: #f97316; animation: ytpulse 1s ease-in-out infinite; }
+    @keyframes ytpulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .yt-status-text { flex: 1; color: var(--text-secondary); }
+    .yt-status-text strong { color: var(--text-primary); }
+    .yt-connect-btn {
+      padding: 5px 12px; border-radius: 5px;
+      border: 1px solid var(--border-strong); background: var(--bg-hover);
+      color: var(--text-secondary); font-family: inherit; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: background 0.15s, color 0.15s; white-space: nowrap;
+    }
+    .yt-connect-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+    .yt-connect-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .yt-oauth-flow { display: none; margin-top: 10px; border-radius: 6px; border: 1px solid var(--border-strong); overflow: hidden; }
+    .yt-oauth-flow.visible { display: block; }
+    .yt-oauth-header { padding: 8px 14px; background: var(--bg-hover); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+    .yt-code-box { padding: 14px; background: var(--bg-elevated); display: none; }
+    .yt-code-box.visible { display: block; }
+    .yt-code-url { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+    .yt-code-url a { color: var(--accent); text-decoration: none; }
+    .yt-code-url a:hover { text-decoration: underline; }
+    .yt-code-value {
+      display: inline-block; font-family: 'JetBrains Mono', monospace;
+      font-size: 22px; font-weight: 700; letter-spacing: 0.15em;
+      color: var(--accent); background: var(--accent-soft);
+      border: 1px solid var(--accent); border-radius: 6px; padding: 8px 18px;
+    }
+    .yt-code-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+    .yt-terminal {
+      padding: 8px 14px; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; line-height: 1.6; color: var(--text-muted);
+      max-height: 100px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+
     /* ── Scrollbar ──────────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -394,6 +439,24 @@
         </div>
         <div class="url-detected" id="urlDetected"></div>
         <div class="url-hint">YouTube und Vimeo werden unterstützt. Das Video wird serverseitig heruntergeladen.</div>
+
+        <!-- YouTube Connect -->
+        <div class="yt-connect-bar" id="ytConnectBar">
+          <div class="yt-dot" id="ytDot"></div>
+          <span class="yt-status-text" id="ytStatusText"><strong>YouTube-Zugang</strong> wird geprüft…</span>
+          <button class="yt-connect-btn" id="ytConnectBtn" style="display:none" onclick="startYtOAuth()">Verbinden</button>
+        </div>
+
+        <div class="yt-oauth-flow" id="ytOauthFlow">
+          <div class="yt-oauth-header">Google-Konto verknüpfen</div>
+          <div class="yt-code-box" id="ytCodeBox">
+            <div class="yt-code-url">1. Öffne <a href="https://www.google.com/device" target="_blank">google.com/device</a> und melde dich an</div>
+            <div class="yt-code-url">2. Gib diesen Code ein:</div>
+            <div class="yt-code-value" id="ytCodeValue">…</div>
+            <div class="yt-code-hint">Der Code ist einige Minuten gültig. Diese Seite aktualisiert sich automatisch nach Bestätigung.</div>
+          </div>
+          <div class="yt-terminal" id="ytTerminal"></div>
+        </div>
       </div>
     </div>
 
@@ -747,6 +810,86 @@
       const combined = `=== TRANSKRIPT ===\n\n${transcriptBox.textContent}\n\n=== BILDSCHIRM-ANALYSE ===\n\n${frameBox.textContent}`;
       dlText(combined, `${name}-komplett.txt`);
     });
+
+    // ── YouTube OAuth Connect ─────────────────────────────────────────────────
+    const ytDot        = document.getElementById('ytDot');
+    const ytStatusText = document.getElementById('ytStatusText');
+    const ytConnectBtn = document.getElementById('ytConnectBtn');
+    const ytOauthFlow  = document.getElementById('ytOauthFlow');
+    const ytCodeBox    = document.getElementById('ytCodeBox');
+    const ytCodeValue  = document.getElementById('ytCodeValue');
+    const ytTerminal   = document.getElementById('ytTerminal');
+
+    function setYtStatus(connected) {
+      ytDot.className = 'yt-dot' + (connected ? ' connected' : '');
+      ytStatusText.innerHTML = connected
+        ? '<strong>YouTube-Zugang</strong> Verbunden ✓'
+        : '<strong>YouTube-Zugang</strong> Nicht verbunden — Downloads können fehlschlagen';
+      ytConnectBtn.style.display = connected ? 'none' : '';
+      ytConnectBtn.textContent   = 'Verbinden';
+      ytConnectBtn.disabled      = false;
+      if (connected) { ytOauthFlow.classList.remove('visible'); ytCodeBox.classList.remove('visible'); }
+    }
+
+    async function checkYtStatus() {
+      try {
+        const d = await (await fetch('/api/youtube/status')).json();
+        setYtStatus(d.connected);
+      } catch { setYtStatus(false); }
+    }
+
+    // Show status bar only on URL tab
+    document.getElementById('tabUrl').addEventListener('click', checkYtStatus);
+    // Initial check if starting on URL tab
+    if (activeTab === 'url') checkYtStatus();
+
+    let ytEventSource = null;
+
+    function startYtOAuth() {
+      if (ytEventSource) { ytEventSource.close(); ytEventSource = null; }
+
+      ytConnectBtn.disabled  = true;
+      ytConnectBtn.textContent = 'Verbinde…';
+      ytDot.className = 'yt-dot connecting';
+      ytStatusText.innerHTML = '<strong>YouTube-Zugang</strong> Warte auf Google-Bestätigung…';
+      ytTerminal.textContent = '';
+      ytCodeBox.classList.remove('visible');
+      ytOauthFlow.classList.add('visible');
+
+      ytEventSource = new EventSource('/api/youtube/connect');
+
+      ytEventSource.onmessage = ({ data }) => {
+        const msg = JSON.parse(data);
+
+        if (msg.type === 'output') {
+          ytTerminal.textContent += msg.text;
+          ytTerminal.scrollTop = ytTerminal.scrollHeight;
+
+          // Parse device code: "enter code  XXXX-XXXX"
+          const codeMatch = msg.text.match(/enter\s+(?:the\s+)?code[:\s]+([A-Z0-9]{4}-[A-Z0-9]{4})/i);
+          if (codeMatch) {
+            ytCodeValue.textContent = codeMatch[1];
+            ytCodeBox.classList.add('visible');
+          }
+        } else if (msg.type === 'connected') {
+          ytEventSource.close(); ytEventSource = null;
+          setYtStatus(true);
+          ytOauthFlow.classList.remove('visible');
+        } else if (msg.type === 'error') {
+          ytEventSource.close(); ytEventSource = null;
+          ytDot.className = 'yt-dot';
+          ytStatusText.innerHTML = '<strong>YouTube-Zugang</strong> Verbindung fehlgeschlagen — Logs oben prüfen';
+          ytConnectBtn.disabled  = false;
+          ytConnectBtn.textContent = 'Erneut versuchen';
+        }
+      };
+
+      ytEventSource.onerror = () => {
+        ytEventSource.close(); ytEventSource = null;
+        ytConnectBtn.disabled  = false;
+        ytConnectBtn.textContent = 'Erneut versuchen';
+      };
+    }
   </script>
 </body>
 </html>

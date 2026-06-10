@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
 import { createReadStream, existsSync, mkdirSync, unlinkSync, statSync, readdirSync, readFileSync } from 'fs';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -107,17 +107,64 @@ async function extractFrames(inputFile, framesDir, intervalSec) {
     .map((f, i) => ({ file: join(framesDir, f), timestampSec: i * intervalSec }));
 }
 
+// ── YouTube OAuth helpers ──────────────────────────────────────────────────
+const YT_CACHE_DIR = '/root/.cache/yt-dlp';
+
+function ytOAuthActive() {
+  try {
+    return existsSync(YT_CACHE_DIR) && readdirSync(YT_CACHE_DIR).some(f => f.endsWith('.json'));
+  } catch { return false; }
+}
+
 // ── yt-dlp download ────────────────────────────────────────────────────────
 async function downloadWithYtDlp(url, destPath, onProgress) {
   onProgress?.('Video wird heruntergeladen…');
-  // Best quality up to 1080p to keep file sizes manageable
-  const cookiesFile = '/app/youtube-cookies.txt';
-  const cookiesFlag = existsSync(cookiesFile) ? `--cookies "${cookiesFile}"` : '';
-  const cmd = `yt-dlp --no-playlist --no-warnings ${cookiesFlag} ` +
+  let authFlag = '';
+  if (ytOAuthActive()) {
+    authFlag = '--username oauth --password ""';
+  } else {
+    const cookiesFile = '/app/youtube-cookies.txt';
+    if (existsSync(cookiesFile) && statSync(cookiesFile).size > 0) {
+      authFlag = `--cookies "${cookiesFile}"`;
+    }
+  }
+  const cmd = `yt-dlp --no-playlist --no-warnings ${authFlag} ` +
     `-f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" ` +
     `--merge-output-format mp4 -o "${destPath}" "${url}"`;
   await execAsync(cmd, { timeout: 600_000 });
 }
+
+// ── GET /api/youtube/status ────────────────────────────────────────────────
+app.get('/api/youtube/status', (_req, res) => {
+  res.json({ connected: ytOAuthActive() });
+});
+
+// ── GET /api/youtube/connect  (SSE — startet OAuth Device Flow) ────────────
+app.get('/api/youtube/connect', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  const proc = spawn('yt-dlp', [
+    '--username', 'oauth', '--password', '',
+    '--skip-download', '--no-warnings',
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  ]);
+
+  const onData = chunk => send({ type: 'output', text: chunk.toString() });
+  proc.stdout.on('data', onData);
+  proc.stderr.on('data', onData);
+
+  proc.on('close', code => {
+    send({ type: code === 0 ? 'connected' : 'error', code });
+    res.end();
+  });
+
+  req.on('close', () => proc.kill('SIGTERM'));
+});
 
 // ── Progress tracking ──────────────────────────────────────────────────────
 const jobProgress = new Map();

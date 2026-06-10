@@ -4,3 +4,4 @@ uploads/
 /tmp/transcribeforge-uploads/
 *.log
 youtube-cookies.txt
+yt-dlp-cache/
