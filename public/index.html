@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
-    /* ── CSS Variables ─────────────────────────────────────────────────── */
     :root {
       --bg-base:        #000000;
       --bg-surface:     #0A0A0A;
@@ -25,7 +24,6 @@
       --accent-glow:    rgba(191,255,0,0.25);
       --danger:         #FF3B3B;
       --success:        #BFFF00;
-      --warning:        #FFB800;
     }
 
     body.light {
@@ -44,7 +42,6 @@
       --accent-glow:    rgba(122,204,0,0.25);
     }
 
-    /* ── Reset & Base ──────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -55,102 +52,48 @@
       transition: background 0.2s, color 0.2s;
     }
 
-    /* ── Header ────────────────────────────────────────────────────────── */
     .header {
-      position: sticky;
-      top: 0;
-      z-index: 100;
+      position: sticky; top: 0; z-index: 100;
       height: 56px;
       background: var(--bg-surface);
       border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      padding: 0 24px;
-      gap: 12px;
+      display: flex; align-items: center;
+      padding: 0 24px; gap: 12px;
     }
 
     .logo-mark {
-      width: 32px;
-      height: 32px;
-      background: var(--accent);
-      color: #000;
-      font-weight: 800;
-      font-size: 13px;
+      width: 32px; height: 32px;
+      background: var(--accent); color: #000;
+      font-weight: 800; font-size: 13px;
       border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      letter-spacing: -0.5px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; letter-spacing: -0.5px;
     }
 
-    .logo-text {
-      display: flex;
-      flex-direction: column;
-      line-height: 1.2;
-    }
-
-    .logo-text .brand {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text-primary);
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-    }
-
-    .logo-text .sub {
-      font-size: 10px;
-      color: var(--text-muted);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
+    .logo-text { display: flex; flex-direction: column; line-height: 1.2; }
+    .logo-text .brand { font-size: 14px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.02em; text-transform: uppercase; }
+    .logo-text .sub   { font-size: 10px; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; }
 
     .header-spacer { flex: 1; }
 
     .theme-toggle {
-      width: 36px;
-      height: 36px;
+      width: 36px; height: 36px;
       border-radius: 8px;
       border: 1px solid var(--border-strong);
       background: var(--bg-elevated);
       color: var(--text-secondary);
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       font-size: 16px;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      transition: background 0.15s, color 0.15s;
     }
+    .theme-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-    .theme-toggle:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-      border-color: var(--border-strong);
-    }
+    .main { max-width: 720px; margin: 0 auto; padding: 40px 24px 80px; }
 
-    /* ── Main Layout ───────────────────────────────────────────────────── */
-    .main {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 40px 24px 80px;
-    }
+    .page-title { font-size: 28px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+    .page-subtitle { font-size: 14px; color: var(--text-secondary); margin-bottom: 36px; }
 
-    .page-title {
-      font-size: 28px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-primary);
-      margin-bottom: 6px;
-    }
-
-    .page-subtitle {
-      font-size: 14px;
-      color: var(--text-secondary);
-      margin-bottom: 36px;
-    }
-
-    /* ── Card ──────────────────────────────────────────────────────────── */
     .m-card {
       background: var(--bg-surface);
       border: 1px solid var(--border);
@@ -160,12 +103,37 @@
     }
 
     .m-card-label {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); margin-bottom: 12px;
+    }
+
+    /* ── Input Tabs ─────────────────────────────────────────────────────── */
+    .input-tabs {
+      display: flex; gap: 4px;
+      margin-bottom: 16px;
+    }
+
+    .input-tab {
+      flex: 1; padding: 8px 12px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
       color: var(--text-muted);
-      margin-bottom: 12px;
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .input-tab.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .input-tab:not(.active):hover {
+      background: var(--bg-hover);
+      color: var(--text-secondary);
     }
 
     /* ── Upload Zone ───────────────────────────────────────────────────── */
@@ -179,136 +147,129 @@
       position: relative;
     }
 
-    .upload-zone:hover,
-    .upload-zone.drag-over {
+    .upload-zone:hover, .upload-zone.drag-over {
       background: var(--accent-soft);
       border-color: var(--accent-hover);
     }
 
     .upload-zone input[type="file"] {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer;
+      width: 100%; height: 100%;
     }
 
-    .upload-icon {
-      font-size: 36px;
-      margin-bottom: 12px;
-      display: block;
-    }
-
-    .upload-text {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 6px;
-    }
-
-    .upload-hint {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
+    .upload-icon { font-size: 36px; margin-bottom: 12px; display: block; }
+    .upload-text { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+    .upload-hint { font-size: 12px; color: var(--text-muted); }
 
     .upload-filename {
       margin-top: 14px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+      display: inline-flex; align-items: center; gap: 6px;
       background: var(--accent-soft);
       border: 1px solid var(--accent);
       border-radius: 6px;
       padding: 6px 12px;
-      font-size: 13px;
+      font-size: 13px; color: var(--accent); font-weight: 600;
+    }
+
+    /* ── URL Input ──────────────────────────────────────────────────────── */
+    .url-input-wrap { position: relative; }
+
+    .url-input {
+      width: 100%;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-family: inherit; font-size: 14px;
+      padding: 14px 14px 14px 48px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .url-input:focus { border-color: var(--accent); }
+    .url-input::placeholder { color: var(--text-muted); }
+
+    .url-platform-icon {
+      position: absolute; left: 14px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px; line-height: 1;
+      pointer-events: none;
+    }
+
+    .url-hint {
+      margin-top: 8px;
+      font-size: 12px; color: var(--text-muted);
+    }
+
+    .url-detected {
+      margin-top: 8px;
+      display: none;
+      font-size: 12px; font-weight: 600;
       color: var(--accent);
-      font-weight: 600;
     }
 
-    /* ── Language Selector ─────────────────────────────────────────────── */
+    .url-detected.visible { display: block; }
+
+    /* ── Settings ───────────────────────────────────────────────────────── */
     .lang-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+      display: flex; align-items: center; gap: 12px;
     }
 
-    .lang-label {
-      font-size: 13px;
-      color: var(--text-secondary);
-      white-space: nowrap;
-    }
+    .lang-label { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
 
     .m-select {
       background: var(--bg-elevated);
       border: 1px solid var(--border-strong);
       border-radius: 6px;
       color: var(--text-primary);
-      font-family: inherit;
-      font-size: 13px;
+      font-family: inherit; font-size: 13px;
       padding: 8px 12px;
-      cursor: pointer;
-      outline: none;
+      cursor: pointer; outline: none;
       transition: border-color 0.15s;
     }
+    .m-select:focus { border-color: var(--accent); }
 
-    .m-select:focus {
-      border-color: var(--accent);
+    .m-checkbox-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 12px;
     }
 
-    /* ── Buttons ───────────────────────────────────────────────────────── */
+    .m-checkbox {
+      width: 16px; height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .m-checkbox-label {
+      font-size: 13px; color: var(--text-secondary); cursor: pointer;
+    }
+
+    .frame-settings { transition: opacity 0.2s; }
+    .frame-settings.disabled { opacity: 0.35; pointer-events: none; }
+
+    /* ── Buttons ────────────────────────────────────────────────────────── */
     .m-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       padding: 10px 20px;
       border-radius: 6px;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: none;
       transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s;
-      text-decoration: none;
       white-space: nowrap;
     }
 
-    .m-btn:disabled {
-      opacity: 0.35;
-      cursor: not-allowed;
-    }
-
-    .m-btn-primary {
-      background: var(--accent);
-      color: #000;
-    }
-
-    .m-btn-primary:not(:disabled):hover {
-      background: var(--accent-hover);
-      box-shadow: 0 0 16px var(--accent-glow);
-    }
-
-    .m-btn-ghost {
-      background: transparent;
-      color: var(--text-secondary);
-      border: 1px solid var(--border-strong);
-    }
-
-    .m-btn-ghost:not(:disabled):hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-      border-color: var(--border-strong);
-    }
-
+    .m-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .m-btn-primary { background: var(--accent); color: #000; }
+    .m-btn-primary:not(:disabled):hover { background: var(--accent-hover); box-shadow: 0 0 16px var(--accent-glow); }
+    .m-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-strong); }
+    .m-btn-ghost:not(:disabled):hover { background: var(--bg-hover); color: var(--text-primary); }
     .m-btn-full { width: 100%; }
 
-    /* ── Spinner ───────────────────────────────────────────────────────── */
+    /* ── Spinner ────────────────────────────────────────────────────────── */
     @keyframes spin { to { transform: rotate(360deg); } }
-
     .spinner {
-      width: 16px;
-      height: 16px;
+      width: 16px; height: 16px;
       border: 2px solid rgba(0,0,0,0.3);
       border-top-color: #000;
       border-radius: 50%;
@@ -316,60 +277,39 @@
       flex-shrink: 0;
     }
 
-    /* ── Progress ──────────────────────────────────────────────────────── */
-    .progress-area {
-      display: none;
-    }
-
+    /* ── Progress ───────────────────────────────────────────────────────── */
+    .progress-area { display: none; }
     .progress-area.visible { display: block; }
 
-    .progress-steps {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+    .progress-steps { display: flex; flex-direction: column; gap: 10px; }
 
     .progress-step {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 13px;
-      color: var(--text-muted);
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-muted);
       transition: color 0.2s;
     }
-
     .progress-step.active { color: var(--text-primary); }
     .progress-step.done   { color: var(--success); }
 
     .step-icon {
-      width: 20px;
-      height: 20px;
+      width: 20px; height: 20px;
       border-radius: 50%;
       border: 1.5px solid var(--border-strong);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; flex-shrink: 0;
       transition: background 0.2s, border-color 0.2s;
     }
+    .progress-step.active .step-icon { border-color: #F97316; background: rgba(249,115,22,0.15); color: #F97316; }
+    .progress-step.done  .step-icon  { background: var(--success); border-color: var(--success); color: #000; }
 
-    .progress-step.active .step-icon {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-    }
+    .step-bar { margin-left: auto; flex-shrink: 0; width: 80px; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+    .step-bar-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 3px; transition: width 0.5s ease; }
+    .step-pct { flex-shrink: 0; width: 30px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--text-muted); text-align: right; }
+    .progress-step.active .step-pct { color: var(--text-secondary); }
+    .progress-step.done   .step-pct { color: var(--success); }
 
-    .progress-step.done .step-icon {
-      background: var(--success);
-      border-color: var(--success);
-      color: #000;
-    }
-
-    /* ── Transcript Output ─────────────────────────────────────────────── */
-    .transcript-area {
-      display: none;
-    }
-
+    /* ── Transcript Output ──────────────────────────────────────────────── */
+    .transcript-area { display: none; }
     .transcript-area.visible { display: block; }
 
     .transcript-box {
@@ -378,45 +318,30 @@
       border-radius: 6px;
       padding: 16px;
       font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.7;
+      font-size: 13px; line-height: 1.7;
       color: var(--text-primary);
-      min-height: 120px;
-      max-height: 400px;
+      min-height: 120px; max-height: 400px;
       overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+      white-space: pre-wrap; word-break: break-word;
       margin-bottom: 14px;
       resize: vertical;
     }
 
-    .transcript-actions {
-      display: flex;
-      gap: 10px;
-    }
+    .transcript-actions { display: flex; gap: 10px; }
 
-    /* ── Error Banner ──────────────────────────────────────────────────── */
+    /* ── Error ──────────────────────────────────────────────────────────── */
     .error-banner {
       display: none;
       background: rgba(255,59,59,0.1);
       border: 1px solid var(--danger);
       border-radius: 6px;
       padding: 12px 16px;
-      font-size: 13px;
-      color: var(--danger);
+      font-size: 13px; color: var(--danger);
       margin-top: 16px;
     }
-
     .error-banner.visible { display: block; }
 
-    /* ── Divider ───────────────────────────────────────────────────────── */
-    .divider {
-      height: 1px;
-      background: var(--border);
-      margin: 24px 0;
-    }
-
-    /* ── Scrollbar ─────────────────────────────────────────────────────── */
+    /* ── Scrollbar ──────────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
@@ -425,37 +350,57 @@
 </head>
 <body>
 
-  <!-- ── Header ──────────────────────────────────────────────────────────── -->
   <header class="header">
     <div class="logo-mark">TF</div>
     <div class="logo-text">
       <span class="brand">TranscribeForge</span>
-      <span class="sub">BuHa OptiMax</span>
+      <span class="sub">Whisper + Claude AI</span>
     </div>
     <div class="header-spacer"></div>
     <button class="theme-toggle" id="themeToggle" title="Theme wechseln">🌙</button>
   </header>
 
-  <!-- ── Main ────────────────────────────────────────────────────────────── -->
   <main class="main">
     <h1 class="page-title">Video Transkription</h1>
-    <p class="page-subtitle">Video hochladen → Audio + Frames → Whisper API + KI-Bildanalyse → Fertig</p>
+    <p class="page-subtitle">Lokale Datei, YouTube oder Vimeo → Whisper + KI-Analyse → Transkript</p>
 
-    <!-- Upload Card -->
+    <!-- Input Card -->
     <div class="m-card">
-      <div class="m-card-label">Video-Datei</div>
-      <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" accept=".mp4,.mov,.webm,.mkv,.avi,video/*" />
-        <span class="upload-icon">🎬</span>
-        <div class="upload-text">Video hier ablegen oder klicken</div>
-        <div class="upload-hint">MP4, MOV, WebM, MKV — bis zu 500 MB</div>
-        <div class="upload-filename" id="uploadFilename" style="display:none"></div>
+      <div class="m-card-label">Videoquelle</div>
+
+      <!-- Tabs -->
+      <div class="input-tabs">
+        <button class="input-tab active" id="tabFile" onclick="switchTab('file')">📁 Datei hochladen</button>
+        <button class="input-tab"        id="tabUrl"  onclick="switchTab('url')">🔗 YouTube / Vimeo URL</button>
+      </div>
+
+      <!-- File Upload -->
+      <div id="panelFile">
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".mp4,.mov,.webm,.mkv,.avi,video/*" />
+          <span class="upload-icon">🎬</span>
+          <div class="upload-text">Video hier ablegen oder klicken</div>
+          <div class="upload-hint">MP4, MOV, WebM, MKV, AVI — bis zu 500 MB</div>
+          <div class="upload-filename" id="uploadFilename" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- URL Input -->
+      <div id="panelUrl" style="display:none">
+        <div class="url-input-wrap">
+          <span class="url-platform-icon" id="urlPlatformIcon">🌐</span>
+          <input type="url" class="url-input" id="urlInput"
+            placeholder="https://www.youtube.com/watch?v=... oder https://vimeo.com/..." />
+        </div>
+        <div class="url-detected" id="urlDetected"></div>
+        <div class="url-hint">YouTube und Vimeo werden unterstützt. Das Video wird serverseitig heruntergeladen.</div>
       </div>
     </div>
 
-    <!-- Language + Frame Interval Card -->
+    <!-- Settings Card -->
     <div class="m-card">
       <div class="m-card-label">Einstellungen</div>
+
       <div class="lang-row">
         <span class="lang-label">Transkriptionssprache:</span>
         <select class="m-select" id="languageSelect">
@@ -464,60 +409,77 @@
           <option value="auto">Automatisch erkennen</option>
         </select>
       </div>
-      <div class="lang-row" style="margin-top:12px">
-        <span class="lang-label">Frame-Analyse alle:</span>
-        <select class="m-select" id="frameIntervalSelect">
-          <option value="1">1 Sekunde</option>
-          <option value="2">2 Sekunden</option>
-          <option value="3" selected>3 Sekunden</option>
-          <option value="5">5 Sekunden</option>
-          <option value="10">10 Sekunden</option>
-          <option value="30">30 Sekunden</option>
-          <option value="60">60 Sekunden</option>
-        </select>
+
+      <!-- No-Frames Toggle -->
+      <div class="m-checkbox-row">
+        <input type="checkbox" class="m-checkbox" id="noFramesCheck" />
+        <label class="m-checkbox-label" for="noFramesCheck">Nur Audio — Frame-Analyse überspringen (günstiger, schneller)</label>
       </div>
-      <div class="lang-row" style="margin-top:12px">
-        <span class="lang-label">KI-Modell (Frames):</span>
-        <select class="m-select" id="frameModelSelect">
-          <option value="claude-haiku-4-5-20251001" selected>Haiku — ~$0.001/Frame (günstig)</option>
-          <option value="claude-sonnet-4-6">Sonnet — ~$0.005/Frame (besser)</option>
-          <option value="claude-opus-4-7">Opus — ~$0.026/Frame (beste Qualität)</option>
-        </select>
+
+      <!-- Frame settings (hidden when noFrames) -->
+      <div class="frame-settings" id="frameSettings">
+        <div class="lang-row" style="margin-top:12px">
+          <span class="lang-label">Frame-Analyse alle:</span>
+          <select class="m-select" id="frameIntervalSelect">
+            <option value="1">1 Sekunde</option>
+            <option value="2">2 Sekunden</option>
+            <option value="3" selected>3 Sekunden</option>
+            <option value="5">5 Sekunden</option>
+            <option value="10">10 Sekunden</option>
+            <option value="30">30 Sekunden</option>
+            <option value="60">60 Sekunden</option>
+          </select>
+        </div>
+        <div class="lang-row" style="margin-top:12px">
+          <span class="lang-label">KI-Modell (Frames):</span>
+          <select class="m-select" id="frameModelSelect">
+            <option value="claude-haiku-4-5-20251001" selected>Haiku — ~$0.001/Frame (günstig)</option>
+            <option value="claude-sonnet-4-6">Sonnet — ~$0.005/Frame (besser)</option>
+            <option value="claude-opus-4-7">Opus — ~$0.026/Frame (beste Qualität)</option>
+          </select>
+        </div>
       </div>
     </div>
 
-    <!-- Submit Button -->
+    <!-- Submit -->
     <button class="m-btn m-btn-primary m-btn-full" id="transcribeBtn" disabled>
       Transkribieren
     </button>
 
-    <!-- Error Banner -->
     <div class="error-banner" id="errorBanner"></div>
 
-    <!-- Progress Card -->
+    <!-- Progress -->
     <div class="m-card progress-area" id="progressArea" style="margin-top:16px">
       <div class="m-card-label">Fortschritt</div>
       <div class="progress-steps">
         <div class="progress-step" id="step1">
           <div class="step-icon" id="step1-icon">1</div>
-          <span>Audio + Frames extrahieren…</span>
+          <span id="step1-label">Audio + Frames extrahieren…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
         </div>
         <div class="progress-step" id="step2">
           <div class="step-icon" id="step2-icon">2</div>
           <span>Whisper API…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
         </div>
         <div class="progress-step" id="step3">
           <div class="step-icon" id="step3-icon">3</div>
           <span>KI-Bildanalyse…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
         </div>
         <div class="progress-step" id="step4">
           <div class="step-icon" id="step4-icon">4</div>
           <span>Fertig</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
         </div>
       </div>
     </div>
 
-    <!-- Transcript Card -->
+    <!-- Transcript -->
     <div class="m-card transcript-area" id="transcriptArea" style="margin-top:16px">
       <div class="m-card-label">Transkript</div>
       <div class="transcript-box" id="transcriptBox"></div>
@@ -527,146 +489,210 @@
       </div>
     </div>
 
-    <!-- Frame Analysis Card -->
+    <!-- Frame Analysis -->
     <div class="m-card transcript-area" id="frameArea" style="margin-top:16px">
-      <div class="m-card-label">Bildschirm-Analyse (<span id="frameCount">0</span> Frames, 1 alle 3 Sek.)</div>
-      <div class="transcript-box" id="frameBox" style="white-space:pre-wrap;font-size:0.82rem;line-height:1.6"></div>
+      <div class="m-card-label">Bildschirm-Analyse (<span id="frameCount">0</span> Frames)</div>
+      <div class="transcript-box" id="frameBox" style="font-size:0.82rem;line-height:1.6"></div>
       <div class="transcript-actions">
         <button class="m-btn m-btn-ghost" id="copyFrameBtn">📋 Analyse kopieren</button>
         <button class="m-btn m-btn-ghost" id="downloadAllBtn">⬇ Alles herunterladen</button>
       </div>
     </div>
-
   </main>
 
   <script>
-    // ── Theme Toggle ────────────────────────────────────────────────────────
+    // ── Theme ─────────────────────────────────────────────────────────────────
     const themeToggle = document.getElementById('themeToggle');
-    const savedTheme = localStorage.getItem('tf-theme') || 'dark';
-    if (savedTheme === 'light') {
+    if (localStorage.getItem('tf-theme') === 'light') {
       document.body.classList.add('light');
       themeToggle.textContent = '☀';
     }
-
     themeToggle.addEventListener('click', () => {
       const isLight = document.body.classList.toggle('light');
       themeToggle.textContent = isLight ? '☀' : '🌙';
       localStorage.setItem('tf-theme', isLight ? 'light' : 'dark');
     });
 
-    // ── File Upload ─────────────────────────────────────────────────────────
-    const uploadZone    = document.getElementById('uploadZone');
-    const fileInput     = document.getElementById('fileInput');
-    const uploadFilename = document.getElementById('uploadFilename');
-    const transcribeBtn = document.getElementById('transcribeBtn');
-    const languageSelect      = document.getElementById('languageSelect');
-    const frameIntervalSelect = document.getElementById('frameIntervalSelect');
-    const frameModelSelect    = document.getElementById('frameModelSelect');
-    const progressArea  = document.getElementById('progressArea');
-    const transcriptArea = document.getElementById('transcriptArea');
-    const transcriptBox  = document.getElementById('transcriptBox');
-    const frameArea      = document.getElementById('frameArea');
-    const frameBox       = document.getElementById('frameBox');
-    const frameCount     = document.getElementById('frameCount');
-    const errorBanner   = document.getElementById('errorBanner');
-    const copyBtn       = document.getElementById('copyBtn');
-    const downloadBtn   = document.getElementById('downloadBtn');
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    let activeTab = 'file';
 
+    function switchTab(tab) {
+      activeTab = tab;
+      document.getElementById('tabFile').classList.toggle('active', tab === 'file');
+      document.getElementById('tabUrl').classList.toggle('active',  tab === 'url');
+      document.getElementById('panelFile').style.display = tab === 'file' ? '' : 'none';
+      document.getElementById('panelUrl').style.display  = tab === 'url'  ? '' : 'none';
+      updateSubmitState();
+    }
+
+    // ── File upload ───────────────────────────────────────────────────────────
+    const uploadZone     = document.getElementById('uploadZone');
+    const fileInput      = document.getElementById('fileInput');
+    const uploadFilename = document.getElementById('uploadFilename');
     let selectedFile = null;
 
     function showFile(file) {
       selectedFile = file;
       uploadFilename.textContent = `📁 ${file.name}`;
       uploadFilename.style.display = 'inline-flex';
-      transcribeBtn.disabled = false;
+      updateSubmitState();
     }
 
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) showFile(fileInput.files[0]);
-    });
-
-    // Drag & Drop
-    uploadZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      uploadZone.classList.add('drag-over');
-    });
-
-    uploadZone.addEventListener('dragleave', () => {
-      uploadZone.classList.remove('drag-over');
-    });
-
-    uploadZone.addEventListener('drop', (e) => {
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) showFile(fileInput.files[0]); });
+    uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+    uploadZone.addEventListener('drop', e => {
       e.preventDefault();
       uploadZone.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file) showFile(file);
+      if (e.dataTransfer.files[0]) showFile(e.dataTransfer.files[0]);
     });
 
-    // ── Progress Steps ──────────────────────────────────────────────────────
-    function setStep(stepNum, state) {
-      // state: 'active' | 'done' | ''
-      const el = document.getElementById(`step${stepNum}`);
-      const icon = document.getElementById(`step${stepNum}-icon`);
-      el.className = `progress-step ${state}`;
-      if (state === 'done') icon.textContent = '✓';
+    // ── URL input ─────────────────────────────────────────────────────────────
+    const urlInput        = document.getElementById('urlInput');
+    const urlDetected     = document.getElementById('urlDetected');
+    const urlPlatformIcon = document.getElementById('urlPlatformIcon');
+
+    const PLATFORMS = {
+      youtube: { re: /youtube\.com|youtu\.be/, icon: '▶', label: 'YouTube erkannt' },
+      vimeo:   { re: /vimeo\.com/,             icon: '🎬', label: 'Vimeo erkannt'   },
+    };
+
+    function detectPlatform(val) {
+      for (const [k, p] of Object.entries(PLATFORMS)) {
+        if (p.re.test(val)) return { key: k, ...p };
+      }
+      return null;
+    }
+
+    urlInput.addEventListener('input', () => {
+      const platform = detectPlatform(urlInput.value);
+      if (platform) {
+        urlPlatformIcon.textContent = platform.icon;
+        urlDetected.textContent     = '✓ ' + platform.label;
+        urlDetected.classList.add('visible');
+      } else {
+        urlPlatformIcon.textContent = '🌐';
+        urlDetected.classList.remove('visible');
+      }
+      updateSubmitState();
+    });
+
+    // ── Submit state ──────────────────────────────────────────────────────────
+    const transcribeBtn  = document.getElementById('transcribeBtn');
+    const noFramesCheck  = document.getElementById('noFramesCheck');
+    const frameSettings  = document.getElementById('frameSettings');
+
+    function updateSubmitState() {
+      if (activeTab === 'file')  transcribeBtn.disabled = !selectedFile;
+      if (activeTab === 'url')   transcribeBtn.disabled = !detectPlatform(urlInput.value);
+    }
+
+    noFramesCheck.addEventListener('change', () => {
+      frameSettings.classList.toggle('disabled', noFramesCheck.checked);
+    });
+
+    // ── Progress ──────────────────────────────────────────────────────────────
+    let pollInterval = null;
+
+    function updateProgressUI({ step, pct, label }) {
+      for (let n = 1; n <= 4; n++) {
+        const el    = document.getElementById(`step${n}`);
+        const icon  = document.getElementById(`step${n}-icon`);
+        const fill  = el.querySelector('.step-bar-fill');
+        const pctEl = el.querySelector('.step-pct');
+        if (n < step) {
+          el.className = 'progress-step done'; icon.textContent = '✓';
+          fill.style.width = '100%'; pctEl.textContent = '100%';
+        } else if (n === step) {
+          el.className = 'progress-step active';
+          fill.style.width = pct + '%';
+          pctEl.textContent = pct > 0 ? pct + '%' : '…';
+          if (label && n === 1) document.getElementById('step1-label').textContent = label;
+        } else {
+          el.className = 'progress-step';
+          fill.style.width = '0%'; pctEl.textContent = '–';
+        }
+      }
     }
 
     function resetSteps() {
-      [1, 2, 3].forEach(n => setStep(n, ''));
-      document.getElementById('step1-icon').textContent = '1';
-      document.getElementById('step2-icon').textContent = '2';
-      document.getElementById('step3-icon').textContent = '3';
+      updateProgressUI({ step: 0, pct: 0 });
+      [1,2,3,4].forEach(n => document.getElementById(`step${n}-icon`).textContent = String(n));
+      document.getElementById('step1-label').textContent = 'Audio + Frames extrahieren…';
     }
 
-    // ── Transcribe ──────────────────────────────────────────────────────────
-    transcribeBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
+    function startPolling(jobId) {
+      pollInterval = setInterval(async () => {
+        try {
+          const d = await (await fetch(`/api/progress/${jobId}`)).json();
+          if (d.step > 0) updateProgressUI(d);
+        } catch {}
+      }, 400);
+    }
 
-      // Reset UI
+    function stopPolling() {
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    }
+
+    // ── Transcribe ────────────────────────────────────────────────────────────
+    const progressArea   = document.getElementById('progressArea');
+    const transcriptArea = document.getElementById('transcriptArea');
+    const transcriptBox  = document.getElementById('transcriptBox');
+    const frameArea      = document.getElementById('frameArea');
+    const frameBox       = document.getElementById('frameBox');
+    const frameCount     = document.getElementById('frameCount');
+    const errorBanner    = document.getElementById('errorBanner');
+    const languageSelect      = document.getElementById('languageSelect');
+    const frameIntervalSelect = document.getElementById('frameIntervalSelect');
+    const frameModelSelect    = document.getElementById('frameModelSelect');
+
+    transcribeBtn.addEventListener('click', async () => {
       errorBanner.classList.remove('visible');
       transcriptArea.classList.remove('visible');
-      transcriptBox.textContent  = '';
+      transcriptBox.textContent = '';
       frameArea.classList.remove('visible');
       frameBox.textContent = '';
       resetSteps();
-
-      // Show progress
       progressArea.classList.add('visible');
-      setStep(1, 'active');
-
-      // Disable button, show spinner
+      updateProgressUI({ step: 1, pct: 5 });
       transcribeBtn.disabled = true;
       transcribeBtn.innerHTML = '<div class="spinner"></div> Verarbeite…';
 
-      // Build form data
-      const formData = new FormData();
-      formData.append('video', selectedFile);
-      formData.append('language', languageSelect.value);
-      formData.append('frameInterval', frameIntervalSelect.value);
-      formData.append('frameModel', frameModelSelect.value);
-
-      // Simulate step progression while waiting
-      const step2Timer = setTimeout(() => setStep(2, 'active'), 3000);
+      const jobId   = Math.random().toString(36).slice(2, 10);
+      const noFrames = noFramesCheck.checked;
+      startPolling(jobId);
 
       try {
-        const response = await fetch('/api/transcribe', {
-          method: 'POST',
-          body: formData,
-        });
-
-        clearTimeout(step2Timer);
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || `HTTP ${response.status}`);
+        let response;
+        if (activeTab === 'file') {
+          const formData = new FormData();
+          formData.append('video',          selectedFile);
+          formData.append('language',       languageSelect.value);
+          formData.append('frameInterval',  frameIntervalSelect.value);
+          formData.append('frameModel',     frameModelSelect.value);
+          formData.append('noFrames',       String(noFrames));
+          response = await fetch('/api/transcribe', {
+            method: 'POST', headers: { 'x-job-id': jobId }, body: formData,
+          });
+        } else {
+          response = await fetch('/api/transcribe-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-job-id': jobId },
+            body: JSON.stringify({
+              url:           urlInput.value.trim(),
+              language:      languageSelect.value,
+              frameInterval: frameIntervalSelect.value,
+              frameModel:    frameModelSelect.value,
+              noFrames,
+            }),
+          });
         }
 
-        setStep(1, 'done');
-        setStep(2, 'done');
-        setStep(3, 'done');
-        setStep(4, 'done');
+        stopPolling();
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
 
+        updateProgressUI({ step: 5, pct: 100 });
         transcriptBox.textContent = data.transcript;
         transcriptArea.classList.add('visible');
 
@@ -677,68 +703,50 @@
         }
 
       } catch (err) {
-        clearTimeout(step2Timer);
+        stopPolling();
         progressArea.classList.remove('visible');
         errorBanner.textContent = `Fehler: ${err.message}`;
         errorBanner.classList.add('visible');
       } finally {
         transcribeBtn.disabled = false;
         transcribeBtn.innerHTML = 'Transkribieren';
+        updateSubmitState();
       }
     });
 
-    // ── Copy ────────────────────────────────────────────────────────────────
-    copyBtn.addEventListener('click', async () => {
-      const text = transcriptBox.textContent;
-      if (!text) return;
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = '✓ Kopiert!';
-        setTimeout(() => { copyBtn.innerHTML = '📋 Kopieren'; }, 2000);
-      } catch {
-        copyBtn.textContent = 'Fehler';
-        setTimeout(() => { copyBtn.innerHTML = '📋 Kopieren'; }, 2000);
-      }
-    });
-
-    // ── Download Transcript ──────────────────────────────────────────────────
-    downloadBtn.addEventListener('click', () => {
-      const text = transcriptBox.textContent;
-      if (!text) return;
-      const baseName = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'transkript';
-      dlText(text, `${baseName}-transkript.txt`);
-    });
-
-    // ── Copy Frame Analysis ──────────────────────────────────────────────────
-    document.getElementById('copyFrameBtn').addEventListener('click', async () => {
-      const text = frameBox.textContent;
-      if (!text) return;
-      const btn = document.getElementById('copyFrameBtn');
-      try {
-        await navigator.clipboard.writeText(text);
-        btn.textContent = '✓ Kopiert!';
-      } catch { btn.textContent = 'Fehler'; }
-      setTimeout(() => { btn.innerHTML = '📋 Analyse kopieren'; }, 2000);
-    });
-
-    // ── Download All ─────────────────────────────────────────────────────────
-    document.getElementById('downloadAllBtn').addEventListener('click', () => {
-      const transcript = transcriptBox.textContent;
-      const frames     = frameBox.textContent;
-      if (!transcript && !frames) return;
-      const baseName = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'analyse';
-      const combined = `=== TRANSKRIPT ===\n\n${transcript}\n\n=== BILDSCHIRM-ANALYSE ===\n\n${frames}`;
-      dlText(combined, `${baseName}-komplett.txt`);
-    });
-
+    // ── Copy / Download ───────────────────────────────────────────────────────
     function dlText(text, filename) {
       const a = Object.assign(document.createElement('a'), {
         href: URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })),
         download: filename,
       });
-      a.click();
-      URL.revokeObjectURL(a.href);
+      a.click(); URL.revokeObjectURL(a.href);
     }
+
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('copyBtn');
+      try { await navigator.clipboard.writeText(transcriptBox.textContent); btn.textContent = '✓ Kopiert!'; }
+      catch { btn.textContent = 'Fehler'; }
+      setTimeout(() => { btn.innerHTML = '📋 Kopieren'; }, 2000);
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const name = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'transkript';
+      dlText(transcriptBox.textContent, `${name}-transkript.txt`);
+    });
+
+    document.getElementById('copyFrameBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('copyFrameBtn');
+      try { await navigator.clipboard.writeText(frameBox.textContent); btn.textContent = '✓ Kopiert!'; }
+      catch { btn.textContent = 'Fehler'; }
+      setTimeout(() => { btn.innerHTML = '📋 Analyse kopieren'; }, 2000);
+    });
+
+    document.getElementById('downloadAllBtn').addEventListener('click', () => {
+      const name = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'analyse';
+      const combined = `=== TRANSKRIPT ===\n\n${transcriptBox.textContent}\n\n=== BILDSCHIRM-ANALYSE ===\n\n${frameBox.textContent}`;
+      dlText(combined, `${name}-komplett.txt`);
+    });
   </script>
 </body>
 </html>

@@ -1,0 +1,23 @@
+services:
+  transcribeforge:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - PORT=3001
+    volumes:
+      - /tmp/transcribeforge-uploads:/tmp/transcribeforge-uploads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transcribeforge.rule=Host(`transcribeforge.hiltmann.cloud`)"
+      - "traefik.http.routers.transcribeforge.entrypoints=websecure"
+      - "traefik.http.routers.transcribeforge.tls.certresolver=letsencrypt"
+      - "traefik.http.services.transcribeforge.loadbalancer.server.port=3001"
+
+networks:
+  default:
+    external: true
+    name: traefik-net
