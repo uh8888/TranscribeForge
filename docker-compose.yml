@@ -5,6 +5,8 @@ services:
     restart: always
     env_file:
       - .env
+    volumes:
+      - ./youtube-cookies.txt:/app/youtube-cookies.txt:ro
     networks:
       - n8n_default
     labels:

@@ -111,8 +111,9 @@ async function extractFrames(inputFile, framesDir, intervalSec) {
 async function downloadWithYtDlp(url, destPath, onProgress) {
   onProgress?.('Video wird heruntergeladen…');
   // Best quality up to 1080p to keep file sizes manageable
-  const cmd = `yt-dlp --no-playlist --no-warnings ` +
-    `--extractor-args "youtube:player_client=ios,web" ` +
+  const cookiesFile = '/app/youtube-cookies.txt';
+  const cookiesFlag = existsSync(cookiesFile) ? `--cookies "${cookiesFile}"` : '';
+  const cmd = `yt-dlp --no-playlist --no-warnings ${cookiesFlag} ` +
     `-f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" ` +
     `--merge-output-format mp4 -o "${destPath}" "${url}"`;
   await execAsync(cmd, { timeout: 600_000 });
