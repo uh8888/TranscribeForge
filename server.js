@@ -112,6 +112,7 @@ async function downloadWithYtDlp(url, destPath, onProgress) {
   onProgress?.('Video wird heruntergeladen…');
   // Best quality up to 1080p to keep file sizes manageable
   const cmd = `yt-dlp --no-playlist --no-warnings ` +
+    `--extractor-args "youtube:player_client=ios,web" ` +
     `-f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" ` +
     `--merge-output-format mp4 -o "${destPath}" "${url}"`;
   await execAsync(cmd, { timeout: 600_000 });
@@ -260,8 +261,11 @@ app.post('/api/transcribe-url', async (req, res) => {
     console.error('URL transcription error:', err);
     jobProgress.delete(jobId);
     const msg = err?.message || '';
-    if (msg.includes('yt-dlp')) {
+    const stderr = err?.stderr || '';
+    if (msg.includes('not found') || msg.includes('No such file') || (msg.includes('yt-dlp') && !stderr)) {
       res.status(500).json({ error: 'yt-dlp nicht gefunden. Bitte installieren: brew install yt-dlp (macOS) oder pip install yt-dlp.' });
+    } else if (stderr) {
+      res.status(500).json({ error: `Download-Fehler: ${stderr.trim().split('\n').pop()}` });
     } else {
       res.status(500).json({ error: `Fehler: ${msg || 'Unbekannt'}` });
     }
