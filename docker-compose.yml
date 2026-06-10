@@ -6,7 +6,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./youtube-cookies.txt:/app/youtube-cookies.txt:ro
+      - ./youtube-cookies.txt:/app/youtube-cookies.txt
+      - ./yt-tokens.json:/app/yt-tokens.json
       - ./yt-dlp-cache:/root/.cache/yt-dlp
     networks:
       - n8n_default

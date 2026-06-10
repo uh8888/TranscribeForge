@@ -385,6 +385,14 @@
       font-size: 11px; line-height: 1.6; color: var(--text-muted);
       max-height: 100px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
     }
+    .yt-method-tab {
+      flex: 1; padding: 8px 12px;
+      background: transparent; border: none;
+      color: var(--text-muted); font-family: inherit; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: color 0.15s, background 0.15s;
+    }
+    .yt-method-tab.active { color: var(--accent); background: var(--accent-soft); }
+    .yt-method-tab:hover:not(.active) { color: var(--text-primary); }
 
     /* ── Scrollbar ──────────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; }
@@ -444,18 +452,46 @@
         <div class="yt-connect-bar" id="ytConnectBar">
           <div class="yt-dot" id="ytDot"></div>
           <span class="yt-status-text" id="ytStatusText"><strong>YouTube-Zugang</strong> wird geprüft…</span>
-          <button class="yt-connect-btn" id="ytConnectBtn" style="display:none" onclick="startYtOAuth()">Verbinden</button>
+          <button class="yt-connect-btn" id="ytConnectBtn" style="display:none" onclick="openYtPanel()">Verbinden</button>
+          <button class="yt-connect-btn" id="ytDisconnectBtn" style="display:none" onclick="disconnectYt()">Trennen</button>
         </div>
 
-        <div class="yt-oauth-flow" id="ytOauthFlow">
-          <div class="yt-oauth-header">Google-Konto verknüpfen</div>
-          <div class="yt-code-box" id="ytCodeBox">
-            <div class="yt-code-url">1. Öffne <a href="https://www.google.com/device" target="_blank">google.com/device</a> und melde dich an</div>
-            <div class="yt-code-url">2. Gib diesen Code ein:</div>
-            <div class="yt-code-value" id="ytCodeValue">…</div>
-            <div class="yt-code-hint">Der Code ist einige Minuten gültig. Diese Seite aktualisiert sich automatisch nach Bestätigung.</div>
+        <div class="yt-oauth-flow" id="ytPanel">
+          <!-- Method tabs -->
+          <div style="display:flex; border-bottom:1px solid var(--border);">
+            <button class="yt-method-tab active" id="ytTabOauth"  onclick="switchYtTab('oauth')"  style="display:none">📺 Google TV OAuth</button>
+            <button class="yt-method-tab"        id="ytTabCookie" onclick="switchYtTab('cookie')">🍪 Cookie einfügen</button>
           </div>
-          <div class="yt-terminal" id="ytTerminal"></div>
+
+          <!-- OAuth panel -->
+          <div id="ytPanelOauth" style="display:none; padding:14px;">
+            <div class="yt-code-box" id="ytCodeBox">
+              <div class="yt-code-url">1. Öffne <a href="https://www.google.com/device" target="_blank" style="color:var(--accent)">google.com/device</a></div>
+              <div class="yt-code-url" style="margin-top:6px">2. Gib diesen Code ein:</div>
+              <div class="yt-code-value" id="ytCodeValue" style="margin-top:8px">…</div>
+              <div class="yt-code-hint">Wartet automatisch auf Bestätigung.</div>
+            </div>
+            <div style="margin-top:10px">
+              <button class="yt-connect-btn" id="ytOauthStartBtn" onclick="startYtOAuth()">OAuth starten</button>
+            </div>
+            <div class="yt-terminal" id="ytTerminal" style="margin-top:8px"></div>
+          </div>
+
+          <!-- Cookie panel -->
+          <div id="ytPanelCookie" style="padding:14px;">
+            <div style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; line-height:1.6;">
+              1. Öffne <strong>youtube.com</strong> im Browser (eingeloggt)<br>
+              2. <strong>F12</strong> → Network → Seite neu laden → ersten Request anklicken<br>
+              3. Request Headers → Feld <strong>cookie</strong> → rechtsklick → Copy value<br>
+              4. Hier einfügen:
+            </div>
+            <textarea id="ytCookieInput" placeholder="VISITOR_INFO1_LIVE=abc; YSC=def; SAPISID=ghi; ..."
+              style="width:100%; height:80px; background:var(--bg-base); border:1px solid var(--border-strong); border-radius:5px; color:var(--text-primary); font-family:monospace; font-size:11px; padding:8px; resize:vertical; outline:none;"></textarea>
+            <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+              <button class="yt-connect-btn" onclick="saveCookies()">Speichern</button>
+              <span id="ytCookieStatus" style="font-size:12px; color:var(--text-muted)"></span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -811,85 +847,112 @@
       dlText(combined, `${name}-komplett.txt`);
     });
 
-    // ── YouTube OAuth Connect ─────────────────────────────────────────────────
-    const ytDot        = document.getElementById('ytDot');
-    const ytStatusText = document.getElementById('ytStatusText');
-    const ytConnectBtn = document.getElementById('ytConnectBtn');
-    const ytOauthFlow  = document.getElementById('ytOauthFlow');
-    const ytCodeBox    = document.getElementById('ytCodeBox');
-    const ytCodeValue  = document.getElementById('ytCodeValue');
-    const ytTerminal   = document.getElementById('ytTerminal');
+    // ── YouTube Auth ──────────────────────────────────────────────────────────
+    const ytDot           = document.getElementById('ytDot');
+    const ytStatusText    = document.getElementById('ytStatusText');
+    const ytConnectBtn    = document.getElementById('ytConnectBtn');
+    const ytDisconnectBtn = document.getElementById('ytDisconnectBtn');
+    const ytPanel         = document.getElementById('ytPanel');
+    const ytCodeBox       = document.getElementById('ytCodeBox');
+    const ytCodeValue     = document.getElementById('ytCodeValue');
+    const ytTerminal      = document.getElementById('ytTerminal');
 
-    function setYtStatus(connected) {
+    let ytEventSource = null;
+
+    function setYtStatus({ connected, method, oauthConfigured }) {
       ytDot.className = 'yt-dot' + (connected ? ' connected' : '');
+      const methodLabel = method === 'oauth' ? ' via Google OAuth' : method === 'cookies' ? ' via Cookies' : '';
       ytStatusText.innerHTML = connected
-        ? '<strong>YouTube-Zugang</strong> Verbunden ✓'
-        : '<strong>YouTube-Zugang</strong> Nicht verbunden — Downloads können fehlschlagen';
-      ytConnectBtn.style.display = connected ? 'none' : '';
-      ytConnectBtn.textContent   = 'Verbinden';
-      ytConnectBtn.disabled      = false;
-      if (connected) { ytOauthFlow.classList.remove('visible'); ytCodeBox.classList.remove('visible'); }
+        ? `<strong>YouTube-Zugang</strong> Verbunden${methodLabel} ✓`
+        : '<strong>YouTube-Zugang</strong> Nicht verbunden';
+      ytConnectBtn.style.display    = connected ? 'none' : '';
+      ytDisconnectBtn.style.display = connected ? '' : 'none';
+      // Show OAuth tab only if GOOGLE_CLIENT_ID is set
+      document.getElementById('ytTabOauth').style.display = oauthConfigured ? '' : 'none';
+      if (!oauthConfigured) switchYtTab('cookie');
+    }
+
+    function openYtPanel() {
+      ytPanel.classList.toggle('visible');
+    }
+
+    function switchYtTab(tab) {
+      document.getElementById('ytTabOauth').classList.toggle('active',  tab === 'oauth');
+      document.getElementById('ytTabCookie').classList.toggle('active', tab === 'cookie');
+      document.getElementById('ytPanelOauth').style.display  = tab === 'oauth'  ? '' : 'none';
+      document.getElementById('ytPanelCookie').style.display = tab === 'cookie' ? '' : 'none';
     }
 
     async function checkYtStatus() {
       try {
         const d = await (await fetch('/api/youtube/status')).json();
-        setYtStatus(d.connected);
-      } catch { setYtStatus(false); }
+        setYtStatus(d);
+      } catch { setYtStatus({ connected: false, method: 'none', oauthConfigured: false }); }
     }
 
-    // Show status bar only on URL tab
-    document.getElementById('tabUrl').addEventListener('click', checkYtStatus);
-    // Initial check if starting on URL tab
-    if (activeTab === 'url') checkYtStatus();
-
-    let ytEventSource = null;
+    async function disconnectYt() {
+      await fetch('/api/youtube/auth', { method: 'DELETE' });
+      await checkYtStatus();
+      ytPanel.classList.remove('visible');
+    }
 
     function startYtOAuth() {
       if (ytEventSource) { ytEventSource.close(); ytEventSource = null; }
-
-      ytConnectBtn.disabled  = true;
-      ytConnectBtn.textContent = 'Verbinde…';
+      const startBtn = document.getElementById('ytOauthStartBtn');
+      startBtn.disabled = true; startBtn.textContent = 'Verbinde…';
       ytDot.className = 'yt-dot connecting';
-      ytStatusText.innerHTML = '<strong>YouTube-Zugang</strong> Warte auf Google-Bestätigung…';
       ytTerminal.textContent = '';
-      ytCodeBox.classList.remove('visible');
-      ytOauthFlow.classList.add('visible');
+      ytCodeBox.style.display = 'none';
 
-      ytEventSource = new EventSource('/api/youtube/connect');
-
+      ytEventSource = new EventSource('/api/youtube/oauth/start');
       ytEventSource.onmessage = ({ data }) => {
         const msg = JSON.parse(data);
-
-        if (msg.type === 'output') {
-          ytTerminal.textContent += msg.text;
-          ytTerminal.scrollTop = ytTerminal.scrollHeight;
-
-          // Parse device code: "enter code  XXXX-XXXX"
-          const codeMatch = msg.text.match(/enter\s+(?:the\s+)?code[:\s]+([A-Z0-9]{4}-[A-Z0-9]{4})/i);
-          if (codeMatch) {
-            ytCodeValue.textContent = codeMatch[1];
-            ytCodeBox.classList.add('visible');
-          }
+        if (msg.type === 'code') {
+          ytCodeValue.textContent = msg.user_code;
+          ytCodeBox.style.display = 'block';
+          ytStatusText.innerHTML = '<strong>YouTube-Zugang</strong> Warte auf Bestätigung…';
         } else if (msg.type === 'connected') {
           ytEventSource.close(); ytEventSource = null;
-          setYtStatus(true);
-          ytOauthFlow.classList.remove('visible');
+          checkYtStatus();
+          ytPanel.classList.remove('visible');
         } else if (msg.type === 'error') {
           ytEventSource.close(); ytEventSource = null;
+          ytTerminal.textContent = '⚠ ' + msg.message;
+          startBtn.disabled = false; startBtn.textContent = 'Erneut versuchen';
           ytDot.className = 'yt-dot';
-          ytStatusText.innerHTML = '<strong>YouTube-Zugang</strong> Verbindung fehlgeschlagen — Logs oben prüfen';
-          ytConnectBtn.disabled  = false;
-          ytConnectBtn.textContent = 'Erneut versuchen';
         }
       };
-
       ytEventSource.onerror = () => {
-        ytEventSource.close(); ytEventSource = null;
-        ytConnectBtn.disabled  = false;
-        ytConnectBtn.textContent = 'Erneut versuchen';
+        ytEventSource?.close(); ytEventSource = null;
+        startBtn.disabled = false; startBtn.textContent = 'Erneut versuchen';
       };
     }
+
+    async function saveCookies() {
+      const raw = document.getElementById('ytCookieInput').value.trim();
+      const status = document.getElementById('ytCookieStatus');
+      if (!raw) { status.textContent = '⚠ Kein Text eingefügt'; return; }
+      status.textContent = 'Speichere…';
+      try {
+        const r = await fetch('/api/youtube/save-cookies', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: raw }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          status.style.color = 'var(--accent)';
+          status.textContent = `✓ ${d.count} Cookies gespeichert`;
+          document.getElementById('ytCookieInput').value = '';
+          setTimeout(() => checkYtStatus(), 300);
+          setTimeout(() => { ytPanel.classList.remove('visible'); status.textContent = ''; }, 1500);
+        } else {
+          status.style.color = 'var(--danger)'; status.textContent = d.error;
+        }
+      } catch (e) { status.style.color = 'var(--danger)'; status.textContent = e.message; }
+    }
+
+    document.getElementById('tabUrl').addEventListener('click', checkYtStatus);
+    if (activeTab === 'url') checkYtStatus();
   </script>
 </body>
 </html>
