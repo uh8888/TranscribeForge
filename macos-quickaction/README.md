@@ -13,7 +13,9 @@ Finder-Rechtsklick-Integration für TranscribeForge: Videodatei oder Zoom-Ordner
 5. Mail wird über **Mail.app** versendet:
    - Body: Header + Executive Summary + Action Items (aus der MD extrahiert)
    - Anhang: vollständige MD-Datei
-6. macOS-Notifications am Start/Ende/bei Fehler.
+6. **Floating Status-Fenster** zeigt während des gesamten Laufs Live-Phasen
+   (Initialisierung → Whisper → MD/Symlink → Mail) inkl. Schritt 1–4 und Detailzeile.
+7. Sound + macOS-Notification am Ende (Glass = Erfolg, Funk = Fehler).
 
 ## Voraussetzungen
 
@@ -50,6 +52,7 @@ Alle Werte werden aus `~/.config/transcribeforge-quickaction.env` gelesen, könn
 | `TF_SUMMARY_MODEL` | `claude-sonnet-4-6` | Claude-Modell für Multi-Speaker-Summary. |
 | `TF_SKILL_DIR` | `~/.claude/skills/transcribeForge` | Pfad zu den Skill-Scripts. |
 | `TF_LOG` | `~/Library/Logs/transcribeforge-quickaction.log` | Logdatei. |
+| `TF_PROGRESS_SCRIPT` | `~/bin/transcribeforge-progress-window.applescript` | Pfad zum Progress-Window-Skript (AppleScriptObjC). |
 
 ## Nutzung
 

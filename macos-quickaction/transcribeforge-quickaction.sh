@@ -3,22 +3,21 @@
 # MD-Ablage (neben Quelldatei + Symlink in zentralem Ordner),
 # Mail mit Action-Items-Body + MD-Anhang.
 #
-# Wird von der Automator Quick Action "TranscribeForge senden.workflow"
-# mit den selektierten Pfaden als Argumente aufgerufen.
+# Live-Status: Floating Progress-Window via progress-window.js (JXA/AppKit).
 #
 # Konfiguration: ~/.config/transcribeforge-quickaction.env (siehe install.sh).
-# Umgebungsvariablen können auch direkt im Workflow gesetzt werden.
 
 set -u
 
 # ---------- Defaults ----------
-: "${TF_RECIPIENT:=}"           # Empfänger-Mailadresse (z. B. me@example.com)
-: "${TF_SENDER:=}"              # Absender-Account (muss in Mail.app vorhanden sein)
-: "${TF_LANG:=de}"              # Whisper-Sprache
+: "${TF_RECIPIENT:=}"
+: "${TF_SENDER:=}"
+: "${TF_LANG:=de}"
 : "${TF_CENTRAL:=$HOME/Documents/TranscribeForge}"
 : "${TF_SUMMARY_MODEL:=claude-sonnet-4-6}"
 : "${TF_SKILL_DIR:=$HOME/.claude/skills/transcribeForge}"
 : "${TF_LOG:=$HOME/Library/Logs/transcribeforge-quickaction.log}"
+: "${TF_PROGRESS_SCRIPT:=$HOME/bin/transcribeforge-progress-window.applescript}"
 
 CONFIG="$HOME/.config/transcribeforge-quickaction.env"
 [ -f "$CONFIG" ] && . "$CONFIG"
@@ -30,6 +29,42 @@ mkdir -p "$TF_CENTRAL" "$(dirname "$TF_LOG")"
 exec >>"$TF_LOG" 2>&1
 echo "===== $(date '+%Y-%m-%d %H:%M:%S') Quick Action start ====="
 echo "Inputs: ${INPUTS[*]}"
+
+STATUS_FILE="$(mktemp -t tf-status)"
+PROGRESS_PID=""
+
+cleanup() {
+  # Falls Fenster noch läuft und kein finaler Status: error
+  if [ -n "$PROGRESS_PID" ] && kill -0 "$PROGRESS_PID" 2>/dev/null; then
+    grep -q "^status=" "$STATUS_FILE" 2>/dev/null || true
+    if ! grep -qE "^status=(done|error)" "$STATUS_FILE"; then
+      write_status "error" "" "Abbruch" ""
+      sleep 0.5
+    fi
+  fi
+  rm -f "$STATUS_FILE"
+}
+trap cleanup EXIT INT TERM
+
+write_status() {
+  # write_status <status> <label> <phase> [detail] [step] [total]
+  {
+    echo "status=$1"
+    echo "label=$2"
+    echo "phase=$3"
+    echo "detail=${4:-}"
+    [ -n "${5:-}" ] && echo "step=$5"
+    [ -n "${6:-}" ] && echo "total=$6"
+  } > "$STATUS_FILE"
+}
+
+start_progress_window() {
+  local label="$1"
+  write_status "running" "$label" "Initialisierung…" "" "" ""
+  /usr/bin/osascript "$TF_PROGRESS_SCRIPT" "$STATUS_FILE" >/dev/null 2>&1 &
+  PROGRESS_PID=$!
+  disown 2>/dev/null || true
+}
 
 notify() {
   local title="$1" msg="$2"
@@ -89,16 +124,18 @@ process_one() {
   symlink="$TF_CENTRAL/$(slugify "$label").md"
   runlog="$(mktemp -t tf-quickaction)"
 
-  notify "TranscribeForge" "Starte ($mode): $label"
+  start_progress_window "$label"
   echo "Mode=$mode Label=$label MD=$mdpath"
 
   if [ "$mode" = "multi" ]; then
+    write_status "running" "$label" "Multi-Speaker Whisper-Transkription" "Sprache: $TF_LANG" "2" "4"
     "$NODE_BIN" "$TF_SKILL_DIR/scripts/transcribe-multi.js" \
       --dir "$input/Audio Record" \
       --lang "$TF_LANG" \
       --summary-model "$TF_SUMMARY_MODEL" \
       --output "$mdpath" > "$runlog" 2>&1
   else
+    write_status "running" "$label" "Whisper transkribiert" "Sprache: $TF_LANG" "2" "4"
     "$NODE_BIN" "$TF_SKILL_DIR/scripts/transcribe.js" \
       --video "$input" \
       --lang "$TF_LANG" > "$runlog" 2>&1
@@ -113,11 +150,13 @@ process_one() {
 
   local rc=$?
   if [ $rc -ne 0 ]; then
-    notify "TranscribeForge ❌" "Fehler bei $label — siehe Log"
+    write_status "error" "$label" "Transkription fehlgeschlagen" "Siehe $TF_LOG"
+    notify "TranscribeForge ❌" "Fehler bei $label"
     echo "Fehler rc=$rc"
     return $rc
   fi
 
+  write_status "running" "$label" "MD-Datei + Symlink schreiben" "$mdname" "3" "4"
   ln -sf "$mdpath" "$symlink"
   echo "MD: $mdpath"
   echo "Symlink: $symlink"
@@ -137,7 +176,9 @@ process_one() {
     echo "Vollständige MD im Anhang."
   } > "$bodyfile"
 
+  write_status "running" "$label" "Mail via Mail.app senden" "→ $TF_RECIPIENT" "4" "4"
   send_mail "TranscribeForge: $label" "$mdpath" "$bodyfile"
+  write_status "done" "$label" "Fertig" "MD: $mdname • Mail an $TF_RECIPIENT"
   notify "TranscribeForge ✓" "$label — MD + Mail fertig"
   rm -f "$runlog" "$bodyfile"
 }

@@ -1,19 +1,24 @@
 #!/bin/bash
 # Installer für die TranscribeForge Quick Action (macOS).
-# Kopiert Script + Automator-Workflow + erstellt Config-Datei.
+# Kopiert Script + Automator-Workflow + Progress-Window-Script + erstellt Config-Datei.
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN_TARGET="$HOME/bin/transcribeforge-quickaction.sh"
+BIN_DIR="$HOME/bin"
+BIN_TARGET="$BIN_DIR/transcribeforge-quickaction.sh"
+PROGRESS_TARGET="$BIN_DIR/transcribeforge-progress-window.applescript"
 SERVICES_DIR="$HOME/Library/Services"
 WF_NAME="TranscribeForge senden.workflow"
 CONFIG_DIR="$HOME/.config"
 CONFIG_FILE="$CONFIG_DIR/transcribeforge-quickaction.env"
 
 echo "→ Installiere Script nach $BIN_TARGET"
-mkdir -p "$HOME/bin"
+mkdir -p "$BIN_DIR"
 install -m 755 "$REPO_DIR/transcribeforge-quickaction.sh" "$BIN_TARGET"
+
+echo "→ Installiere Progress-Window-Script nach $PROGRESS_TARGET"
+install -m 644 "$REPO_DIR/progress-window.applescript" "$PROGRESS_TARGET"
 
 echo "→ Installiere Automator-Workflow nach $SERVICES_DIR/$WF_NAME"
 mkdir -p "$SERVICES_DIR"
@@ -44,6 +49,9 @@ TF_SUMMARY_MODEL="claude-sonnet-4-6"
 
 # Skill-Verzeichnis
 TF_SKILL_DIR="$HOME/.claude/skills/transcribeForge"
+
+# Progress-Window-Script (nur ändern, falls verschoben)
+TF_PROGRESS_SCRIPT="$HOME/bin/transcribeforge-progress-window.applescript"
 EOF
   echo "  → Trage TF_RECIPIENT und TF_SENDER in $CONFIG_FILE ein."
 else
@@ -61,6 +69,9 @@ cat <<'EOM'
 Nutzung:
   Finder → Rechtsklick auf Videodatei oder Zoom-Ordner
         → Quick Actions / Dienste / "TranscribeForge senden"
+
+Beim Aufruf erscheint ein schwebendes Status-Fenster mit Live-Phasen
+(Whisper → MD → Mail). Sound am Ende: "Glass" (Erfolg) / "Funk" (Fehler).
 
 Falls Eintrag fehlt:
   Systemeinstellungen → Tastatur → Kurzbefehle → Dienste
