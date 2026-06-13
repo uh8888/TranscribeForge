@@ -8,12 +8,13 @@
 --   detail=<optionale Detailzeile>
 --   step=<int>
 --   total=<int>
---   folder=<absoluter Pfad zum Ergebnis-Ordner>   (für Öffnen-Button)
---   mdfile=<absoluter Pfad zur MD-Datei>          (optional, für Öffnen-Button)
+--   folder=<absoluter Pfad zum Ergebnis-Ordner>   (für Öffnen-Aktion)
+--   mdfile=<absoluter Pfad zur MD-Datei>          (optional, bevorzugt für Öffnen)
 --
--- Verhalten: Fenster bleibt offen bis User es schließt (Schließen-Button,
--- Close-Box oder Öffnen-Button). Bei status=done erscheint der "Öffnen"-Button
--- aktiv, Sound spielt, aber kein Auto-Close.
+-- Verhalten: Fenster bleibt offen, zeigt Live-Phasen.
+-- Bei status=done/error erscheint ein modaler Dialog ("Im Finder öffnen" /
+-- "Schließen"). Klick auf Öffnen ruft `open -R <mdfile>` bzw. `open <folder>`.
+-- Anschließend wird das Fenster geschlossen.
 
 use framework "Foundation"
 use framework "AppKit"
@@ -21,45 +22,13 @@ use scripting additions
 
 property NSApp : missing value
 
-script ButtonBridge
-	property targetWindow : missing value
-	property folderPath : ""
-	property mdPath : ""
-	on openResult:sender
-		if mdPath is not "" then
-			try
-				do shell script "open -R " & quoted form of mdPath
-				my closeWindow()
-				return
-			end try
-		end if
-		if folderPath is not "" then
-			try
-				do shell script "open " & quoted form of folderPath
-			end try
-		end if
-		my closeWindow()
-	end openResult:
-	on closeNow:sender
-		my closeWindow()
-	end closeNow:
-	on closeWindow()
-		if targetWindow is not missing value then
-			try
-				targetWindow's |close|()
-			end try
-		end if
-		NSApp's terminate:(missing value)
-	end closeWindow
-end script
-
 on run argv
 	set statusFile to (item 1 of argv) as text
 
 	set NSApp to current application's NSApplication's sharedApplication()
 	NSApp's setActivationPolicy:0 -- NSApplicationActivationPolicyRegular
 
-	set winRect to current application's NSMakeRect(0, 0, 560, 220)
+	set winRect to current application's NSMakeRect(0, 0, 560, 150)
 	set styleMask to (1 + 2) -- titled + closable
 	set theWindow to (current application's NSWindow's alloc())'s initWithContentRect:winRect styleMask:styleMask backing:2 defer:false
 	theWindow's setTitle:"TranscribeForge"
@@ -69,7 +38,7 @@ on run argv
 	set contentView to theWindow's contentView()
 
 	-- Phase label
-	set phaseRect to current application's NSMakeRect(20, 170, 520, 26)
+	set phaseRect to current application's NSMakeRect(20, 100, 520, 26)
 	set phaseField to (current application's NSTextField's alloc())'s initWithFrame:phaseRect
 	phaseField's setBezeled:false
 	phaseField's setDrawsBackground:false
@@ -80,7 +49,7 @@ on run argv
 	(contentView's addSubview:phaseField)
 
 	-- File label
-	set fileRect to current application's NSMakeRect(20, 140, 520, 22)
+	set fileRect to current application's NSMakeRect(20, 72, 520, 22)
 	set fileField to (current application's NSTextField's alloc())'s initWithFrame:fileRect
 	fileField's setBezeled:false
 	fileField's setDrawsBackground:false
@@ -92,7 +61,7 @@ on run argv
 	(contentView's addSubview:fileField)
 
 	-- Detail label
-	set detailRect to current application's NSMakeRect(20, 115, 520, 20)
+	set detailRect to current application's NSMakeRect(20, 48, 520, 20)
 	set detailField to (current application's NSTextField's alloc())'s initWithFrame:detailRect
 	detailField's setBezeled:false
 	detailField's setDrawsBackground:false
@@ -104,39 +73,21 @@ on run argv
 	(contentView's addSubview:detailField)
 
 	-- Progress bar
-	set barRect to current application's NSMakeRect(20, 70, 520, 20)
+	set barRect to current application's NSMakeRect(20, 18, 520, 20)
 	set progBar to (current application's NSProgressIndicator's alloc())'s initWithFrame:barRect
 	progBar's setStyle:0 -- bar
 	progBar's setIndeterminate:true
 	progBar's startAnimation:(missing value)
 	(contentView's addSubview:progBar)
 
-	-- Buttons
-	set ButtonBridge's targetWindow to theWindow
-
-	set openBtnRect to current application's NSMakeRect(260, 20, 160, 32)
-	set openBtn to (current application's NSButton's alloc())'s initWithFrame:openBtnRect
-	openBtn's setTitle:"Im Finder öffnen"
-	openBtn's setBezelStyle:1 -- rounded
-	openBtn's setEnabled:false
-	openBtn's setTarget:ButtonBridge
-	openBtn's setAction:("openResult:")
-	(contentView's addSubview:openBtn)
-
-	set closeBtnRect to current application's NSMakeRect(430, 20, 110, 32)
-	set closeBtn to (current application's NSButton's alloc())'s initWithFrame:closeBtnRect
-	closeBtn's setTitle:"Schließen"
-	closeBtn's setBezelStyle:1
-	closeBtn's setKeyEquivalent:return
-	closeBtn's setTarget:ButtonBridge
-	closeBtn's setAction:("closeNow:")
-	(contentView's addSubview:closeBtn)
-
 	theWindow's makeKeyAndOrderFront:(missing value)
 	NSApp's activateIgnoringOtherApps:true
 
 	set lastSig to ""
 	set finished to false
+	set lastFolder to ""
+	set lastMd to ""
+	set lastLabel to ""
 
 	repeat
 		try
@@ -162,8 +113,9 @@ on run argv
 			phaseField's setStringValue:phaseVal
 			detailField's setStringValue:detailVal
 
-			if folderVal is not "" then set ButtonBridge's folderPath to folderVal
-			if mdVal is not "" then set ButtonBridge's mdPath to mdVal
+			if folderVal is not "" then set lastFolder to folderVal
+			if mdVal is not "" then set lastMd to mdVal
+			if lblVal is not "" then set lastLabel to lblVal
 
 			if stepVal is not "" and totalVal is not "" then
 				try
@@ -177,25 +129,27 @@ on run argv
 			end if
 
 			if statusVal is "done" and not finished then
+				set finished to true
 				phaseField's setStringValue:("✓ Fertig: " & lblVal)
 				progBar's setIndeterminate:false
 				progBar's setMaxValue:1.0
 				progBar's setDoubleValue:1.0
 				progBar's stopAnimation:(missing value)
-				openBtn's setEnabled:true
 				try
 					(current application's NSSound's soundNamed:"Glass")'s play()
 				end try
-				set finished to true
+				my showDoneDialog(lastLabel, detailVal, lastMd, lastFolder)
+				exit repeat
 			else if statusVal is "error" and not finished then
+				set finished to true
 				phaseField's setStringValue:("❌ Fehler: " & lblVal)
 				progBar's setIndeterminate:false
 				progBar's stopAnimation:(missing value)
-				if folderVal is not "" then openBtn's setEnabled:true
 				try
 					(current application's NSSound's soundNamed:"Funk")'s play()
 				end try
-				set finished to true
+				my showErrorDialog(lastLabel, detailVal, lastFolder)
+				exit repeat
 			end if
 		end if
 
@@ -207,8 +161,51 @@ on run argv
 		if not (theWindow's isVisible() as boolean) then exit repeat
 	end repeat
 
+	try
+		theWindow's |close|()
+	end try
 	NSApp's terminate:(missing value)
 end run
+
+on showDoneDialog(lbl, detail, mdPath, folderPath)
+	set msg to lbl
+	if detail is not "" then set msg to msg & return & detail
+	try
+		set dlg to (display dialog msg with title "TranscribeForge ✓ Fertig" buttons {"Schließen", "Im Finder öffnen"} default button "Im Finder öffnen" cancel button "Schließen")
+		if (button returned of dlg) is "Im Finder öffnen" then my doOpen(mdPath, folderPath)
+	on error errMsg number errNum
+		-- Cancel-Button wirft -128; einfach ignorieren
+		if errNum is not -128 then
+			-- Bei anderem Fehler: trotzdem versuchen zu öffnen
+			my doOpen(mdPath, folderPath)
+		end if
+	end try
+end showDoneDialog
+
+on showErrorDialog(lbl, detail, folderPath)
+	set msg to "Fehler bei: " & lbl
+	if detail is not "" then set msg to msg & return & detail
+	try
+		set dlg to (display dialog msg with title "TranscribeForge ❌ Fehler" buttons {"Schließen", "Ordner öffnen"} default button "Schließen" cancel button "Schließen")
+		if (button returned of dlg) is "Ordner öffnen" then my doOpen("", folderPath)
+	on error errMsg number errNum
+		-- ignore cancel
+	end try
+end showErrorDialog
+
+on doOpen(mdPath, folderPath)
+	if mdPath is not "" then
+		try
+			do shell script "open -R " & quoted form of mdPath
+			return
+		end try
+	end if
+	if folderPath is not "" then
+		try
+			do shell script "open " & quoted form of folderPath
+		end try
+	end if
+end doOpen
 
 on parseKV(txt)
 	set d to current application's NSMutableDictionary's dictionary()

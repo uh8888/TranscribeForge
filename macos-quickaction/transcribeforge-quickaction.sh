@@ -18,12 +18,37 @@ set -u
 : "${TF_SKILL_DIR:=$HOME/.claude/skills/transcribeForge}"
 : "${TF_LOG:=$HOME/Library/Logs/transcribeforge-quickaction.log}"
 : "${TF_PROGRESS_SCRIPT:=$HOME/bin/transcribeforge-progress-window.applescript}"
+: "${TF_NODE_BIN:=}"
 
 CONFIG="$HOME/.config/transcribeforge-quickaction.env"
 [ -f "$CONFIG" ] && . "$CONFIG"
 
+# PATH um typische Node-Locations erweitern (Quick Action startet mit kargem PATH)
+export PATH="$HOME/.nvm/versions/node/v23.1.0/bin:$HOME/.nvm/versions/node/v20.20.2/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 INPUTS=("$@")
-NODE_BIN="$(command -v node || echo /usr/local/bin/node)"
+
+# Node finden — Reihenfolge: TF_NODE_BIN, command -v, nvm-latest, übliche Pfade
+find_node() {
+  if [ -n "$TF_NODE_BIN" ] && [ -x "$TF_NODE_BIN" ]; then
+    echo "$TF_NODE_BIN"; return
+  fi
+  local n
+  n="$(command -v node 2>/dev/null || true)"
+  if [ -n "$n" ] && [ -x "$n" ]; then echo "$n"; return; fi
+  for n in \
+    "$HOME/.nvm/versions/node/v23.1.0/bin/node" \
+    "$HOME/.nvm/versions/node/v20.20.2/bin/node" \
+    /usr/local/bin/node \
+    /opt/homebrew/bin/node; do
+    [ -x "$n" ] && echo "$n" && return
+  done
+  # letzter Versuch: neueste nvm-Version
+  n="$(ls -d "$HOME/.nvm/versions/node/"v*/bin/node 2>/dev/null | sort -V | tail -1)"
+  [ -x "$n" ] && echo "$n" && return
+  echo ""
+}
+NODE_BIN="$(find_node)"
 
 mkdir -p "$TF_CENTRAL" "$(dirname "$TF_LOG")"
 exec >>"$TF_LOG" 2>&1
@@ -141,8 +166,16 @@ process_one() {
   runlog="$(mktemp -t tf-quickaction)"
 
   start_progress_window "$label"
-  echo "Mode=$mode Label=$label MD=$mdpath"
+  echo "Mode=$mode Label=$label MD=$mdpath NODE_BIN=$NODE_BIN"
 
+  if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+    write_status "error" "$label" "Node nicht gefunden" "TF_NODE_BIN in Config setzen" "" "" "$parent" ""
+    notify "TranscribeForge ❌" "Node-Binary nicht gefunden"
+    echo "Fehler: NODE_BIN leer oder nicht ausführbar"
+    return 1
+  fi
+
+  local rc=0
   if [ "$mode" = "multi" ]; then
     write_status "running" "$label" "Multi-Speaker Whisper-Transkription" "Sprache: $TF_LANG" "2" "4"
     "$NODE_BIN" "$TF_SKILL_DIR/scripts/transcribe-multi.js" \
@@ -150,25 +183,29 @@ process_one() {
       --lang "$TF_LANG" \
       --summary-model "$TF_SUMMARY_MODEL" \
       --output "$mdpath" > "$runlog" 2>&1
+    rc=$?
   else
     write_status "running" "$label" "Whisper transkribiert" "Sprache: $TF_LANG" "2" "4"
     "$NODE_BIN" "$TF_SKILL_DIR/scripts/transcribe.js" \
       --video "$input" \
       --lang "$TF_LANG" > "$runlog" 2>&1
-    {
-      echo "# Transkript: $label"
-      echo
-      echo "_Generiert: $(date '+%Y-%m-%d %H:%M')_"
-      echo
-      cat "$runlog"
-    } > "$mdpath"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+      {
+        echo "# Transkript: $label"
+        echo
+        echo "_Generiert: $(date '+%Y-%m-%d %H:%M')_"
+        echo
+        cat "$runlog"
+      } > "$mdpath"
+    fi
   fi
 
-  local rc=$?
   if [ $rc -ne 0 ]; then
     write_status "error" "$label" "Transkription fehlgeschlagen" "Siehe $TF_LOG" "" "" "$parent" ""
     notify "TranscribeForge ❌" "Fehler bei $label"
-    echo "Fehler rc=$rc"
+    echo "Fehler rc=$rc — Inhalt $runlog:"
+    cat "$runlog" 2>&1 | head -50
     return $rc
   fi
 
