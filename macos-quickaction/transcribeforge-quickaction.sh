@@ -84,17 +84,31 @@ send_mail() {
     echo "Mail übersprungen: TF_RECIPIENT/TF_SENDER nicht gesetzt"
     return 0
   fi
-  /usr/bin/osascript <<APPLESCRIPT
-set theBody to (do shell script "cat " & quoted form of "$bodyfile")
-set theAttachment to (POSIX file "$mdfile")
+  # Pfade/Strings per Env durchreichen — robust gegen Umlaute, Leerzeichen, Quotes.
+  # visible:true + delay 3 vor send ist der bekannte Workaround für den Mail.app-Bug,
+  # bei dem im Hintergrund versandte Mails den Anhang verlieren.
+  TF_SUBJECT="$subject" \
+  TF_BODYFILE="$bodyfile" \
+  TF_MDFILE="$mdfile" \
+  TF_OSA_RECIPIENT="$TF_RECIPIENT" \
+  TF_OSA_SENDER="$TF_SENDER" \
+  /usr/bin/osascript <<'APPLESCRIPT'
+set theSubject to (system attribute "TF_SUBJECT")
+set theSender to (system attribute "TF_OSA_SENDER")
+set theRecipient to (system attribute "TF_OSA_RECIPIENT")
+set bodyFile to (system attribute "TF_BODYFILE")
+set mdFile to (system attribute "TF_MDFILE")
+set theBody to (do shell script "cat " & quoted form of bodyFile)
+set theAttachment to (POSIX file mdFile)
 tell application "Mail"
-  set newMessage to make new outgoing message with properties {subject:"$subject", content:theBody, visible:false}
+  set newMessage to make new outgoing message with properties {subject:theSubject, content:theBody, visible:true}
   tell newMessage
-    set sender to "$TF_SENDER"
-    make new to recipient at end of to recipients with properties {address:"$TF_RECIPIENT"}
+    set sender to theSender
+    make new to recipient at end of to recipients with properties {address:theRecipient}
     tell content
       make new attachment with properties {file name:theAttachment} at after last paragraph
     end tell
+    delay 3
     send
   end tell
 end tell
