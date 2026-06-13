@@ -114,7 +114,7 @@ on run argv
 	-- Buttons
 	set ButtonBridge's targetWindow to theWindow
 
-	set openBtnRect to current application's NSMakeRect(330, 20, 110, 32)
+	set openBtnRect to current application's NSMakeRect(260, 20, 160, 32)
 	set openBtn to (current application's NSButton's alloc())'s initWithFrame:openBtnRect
 	openBtn's setTitle:"Im Finder öffnen"
 	openBtn's setBezelStyle:1 -- rounded
@@ -123,7 +123,7 @@ on run argv
 	openBtn's setAction:("openResult:")
 	(contentView's addSubview:openBtn)
 
-	set closeBtnRect to current application's NSMakeRect(445, 20, 95, 32)
+	set closeBtnRect to current application's NSMakeRect(430, 20, 110, 32)
 	set closeBtn to (current application's NSButton's alloc())'s initWithFrame:closeBtnRect
 	closeBtn's setTitle:"Schließen"
 	closeBtn's setBezelStyle:1
