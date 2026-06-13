@@ -23,8 +23,8 @@ set -u
 CONFIG="$HOME/.config/transcribeforge-quickaction.env"
 [ -f "$CONFIG" ] && . "$CONFIG"
 
-# PATH um typische Node-Locations erweitern (Quick Action startet mit kargem PATH)
-export PATH="$HOME/.nvm/versions/node/v23.1.0/bin:$HOME/.nvm/versions/node/v20.20.2/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+# PATH um typische Node-/ffmpeg-Locations erweitern (Quick Action startet mit kargem PATH)
+export PATH="$HOME/bin:$HOME/.local/bin:$HOME/.nvm/versions/node/v23.1.0/bin:$HOME/.nvm/versions/node/v20.20.2/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 INPUTS=("$@")
 
@@ -59,13 +59,15 @@ STATUS_FILE="$(mktemp -t tf-status)"
 PROGRESS_PID=""
 
 cleanup() {
-  # Falls Fenster noch läuft und kein finaler Status: error
+  # Falls Progress-Window noch läuft: finalen Status sicherstellen, aber
+  # Statusdatei NICHT löschen — das Fenster liest sie noch und braucht den
+  # Trigger, um den Abschluss-Dialog anzuzeigen. /var/folders wird vom OS
+  # aufgeräumt.
   if [ -n "$PROGRESS_PID" ] && kill -0 "$PROGRESS_PID" 2>/dev/null; then
-    grep -q "^status=" "$STATUS_FILE" 2>/dev/null || true
-    if ! grep -qE "^status=(done|error)" "$STATUS_FILE"; then
+    if ! grep -qE "^status=(done|error)" "$STATUS_FILE" 2>/dev/null; then
       write_status "error" "" "Abbruch" ""
-      sleep 0.5
     fi
+    return
   fi
   rm -f "$STATUS_FILE"
 }
