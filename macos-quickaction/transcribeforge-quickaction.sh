@@ -47,7 +47,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 write_status() {
-  # write_status <status> <label> <phase> [detail] [step] [total]
+  # write_status <status> <label> <phase> [detail] [step] [total] [folder] [mdfile]
   {
     echo "status=$1"
     echo "label=$2"
@@ -55,6 +55,8 @@ write_status() {
     echo "detail=${4:-}"
     [ -n "${5:-}" ] && echo "step=$5"
     [ -n "${6:-}" ] && echo "total=$6"
+    [ -n "${7:-}" ] && echo "folder=$7"
+    [ -n "${8:-}" ] && echo "mdfile=$8"
   } > "$STATUS_FILE"
 }
 
@@ -150,13 +152,13 @@ process_one() {
 
   local rc=$?
   if [ $rc -ne 0 ]; then
-    write_status "error" "$label" "Transkription fehlgeschlagen" "Siehe $TF_LOG"
+    write_status "error" "$label" "Transkription fehlgeschlagen" "Siehe $TF_LOG" "" "" "$parent" ""
     notify "TranscribeForge ❌" "Fehler bei $label"
     echo "Fehler rc=$rc"
     return $rc
   fi
 
-  write_status "running" "$label" "MD-Datei + Symlink schreiben" "$mdname" "3" "4"
+  write_status "running" "$label" "MD-Datei + Symlink schreiben" "$mdname" "3" "4" "$parent" "$mdpath"
   ln -sf "$mdpath" "$symlink"
   echo "MD: $mdpath"
   echo "Symlink: $symlink"
@@ -176,9 +178,9 @@ process_one() {
     echo "Vollständige MD im Anhang."
   } > "$bodyfile"
 
-  write_status "running" "$label" "Mail via Mail.app senden" "→ $TF_RECIPIENT" "4" "4"
+  write_status "running" "$label" "Mail via Mail.app senden" "→ $TF_RECIPIENT" "4" "4" "$parent" "$mdpath"
   send_mail "TranscribeForge: $label" "$mdpath" "$bodyfile"
-  write_status "done" "$label" "Fertig" "MD: $mdname • Mail an $TF_RECIPIENT"
+  write_status "done" "$label" "Fertig" "MD: $mdname • Mail an $TF_RECIPIENT" "4" "4" "$parent" "$mdpath"
   notify "TranscribeForge ✓" "$label — MD + Mail fertig"
   rm -f "$runlog" "$bodyfile"
 }

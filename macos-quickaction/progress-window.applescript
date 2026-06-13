@@ -8,21 +8,50 @@
 --   detail=<optionale Detailzeile>
 --   step=<int>
 --   total=<int>
+--   folder=<absoluter Pfad zum Ergebnis-Ordner>   (für Öffnen-Button)
+--   mdfile=<absoluter Pfad zur MD-Datei>          (optional, für Öffnen-Button)
+--
+-- Verhalten: Fenster bleibt offen bis User es schließt (Schließen-Button,
+-- Close-Box oder Öffnen-Button). Bei status=done erscheint der "Öffnen"-Button
+-- aktiv, Sound spielt, aber kein Auto-Close.
 
 use framework "Foundation"
 use framework "AppKit"
 use scripting additions
 
 property NSApp : missing value
-property NSWindow : missing value
-property NSTextField : missing value
-property NSProgressIndicator : missing value
-property NSColor : missing value
-property NSFont : missing value
-property NSRunLoop : missing value
-property NSDate : missing value
-property NSString : missing value
-property NSSound : missing value
+
+script ButtonBridge
+	property targetWindow : missing value
+	property folderPath : ""
+	property mdPath : ""
+	on openResult:sender
+		if mdPath is not "" then
+			try
+				do shell script "open -R " & quoted form of mdPath
+				my closeWindow()
+				return
+			end try
+		end if
+		if folderPath is not "" then
+			try
+				do shell script "open " & quoted form of folderPath
+			end try
+		end if
+		my closeWindow()
+	end openResult:
+	on closeNow:sender
+		my closeWindow()
+	end closeNow:
+	on closeWindow()
+		if targetWindow is not missing value then
+			try
+				targetWindow's |close|()
+			end try
+		end if
+		NSApp's terminate:(missing value)
+	end closeWindow
+end script
 
 on run argv
 	set statusFile to (item 1 of argv) as text
@@ -30,7 +59,7 @@ on run argv
 	set NSApp to current application's NSApplication's sharedApplication()
 	NSApp's setActivationPolicy:0 -- NSApplicationActivationPolicyRegular
 
-	set winRect to current application's NSMakeRect(0, 0, 540, 180)
+	set winRect to current application's NSMakeRect(0, 0, 560, 220)
 	set styleMask to (1 + 2) -- titled + closable
 	set theWindow to (current application's NSWindow's alloc())'s initWithContentRect:winRect styleMask:styleMask backing:2 defer:false
 	theWindow's setTitle:"TranscribeForge"
@@ -39,8 +68,8 @@ on run argv
 
 	set contentView to theWindow's contentView()
 
-	-- Title label (phase)
-	set phaseRect to current application's NSMakeRect(20, 130, 500, 26)
+	-- Phase label
+	set phaseRect to current application's NSMakeRect(20, 170, 520, 26)
 	set phaseField to (current application's NSTextField's alloc())'s initWithFrame:phaseRect
 	phaseField's setBezeled:false
 	phaseField's setDrawsBackground:false
@@ -51,7 +80,7 @@ on run argv
 	(contentView's addSubview:phaseField)
 
 	-- File label
-	set fileRect to current application's NSMakeRect(20, 100, 500, 22)
+	set fileRect to current application's NSMakeRect(20, 140, 520, 22)
 	set fileField to (current application's NSTextField's alloc())'s initWithFrame:fileRect
 	fileField's setBezeled:false
 	fileField's setDrawsBackground:false
@@ -63,7 +92,7 @@ on run argv
 	(contentView's addSubview:fileField)
 
 	-- Detail label
-	set detailRect to current application's NSMakeRect(20, 75, 500, 20)
+	set detailRect to current application's NSMakeRect(20, 115, 520, 20)
 	set detailField to (current application's NSTextField's alloc())'s initWithFrame:detailRect
 	detailField's setBezeled:false
 	detailField's setDrawsBackground:false
@@ -75,18 +104,39 @@ on run argv
 	(contentView's addSubview:detailField)
 
 	-- Progress bar
-	set barRect to current application's NSMakeRect(20, 35, 500, 20)
+	set barRect to current application's NSMakeRect(20, 70, 520, 20)
 	set progBar to (current application's NSProgressIndicator's alloc())'s initWithFrame:barRect
-	progBar's setStyle:0 -- NSProgressIndicatorStyleBar
+	progBar's setStyle:0 -- bar
 	progBar's setIndeterminate:true
 	progBar's startAnimation:(missing value)
 	(contentView's addSubview:progBar)
+
+	-- Buttons
+	set ButtonBridge's targetWindow to theWindow
+
+	set openBtnRect to current application's NSMakeRect(330, 20, 110, 32)
+	set openBtn to (current application's NSButton's alloc())'s initWithFrame:openBtnRect
+	openBtn's setTitle:"Im Finder öffnen"
+	openBtn's setBezelStyle:1 -- rounded
+	openBtn's setEnabled:false
+	openBtn's setTarget:ButtonBridge
+	openBtn's setAction:("openResult:")
+	(contentView's addSubview:openBtn)
+
+	set closeBtnRect to current application's NSMakeRect(445, 20, 95, 32)
+	set closeBtn to (current application's NSButton's alloc())'s initWithFrame:closeBtnRect
+	closeBtn's setTitle:"Schließen"
+	closeBtn's setBezelStyle:1
+	closeBtn's setKeyEquivalent:return
+	closeBtn's setTarget:ButtonBridge
+	closeBtn's setAction:("closeNow:")
+	(contentView's addSubview:closeBtn)
 
 	theWindow's makeKeyAndOrderFront:(missing value)
 	NSApp's activateIgnoringOtherApps:true
 
 	set lastSig to ""
-	set exitAt to missing value
+	set finished to false
 
 	repeat
 		try
@@ -95,63 +145,65 @@ on run argv
 			set rawText to ""
 		end try
 
-		if rawText is not "" then
-			set sig to rawText
-			if sig is not lastSig then
-				set lastSig to sig
-				set kv to my parseKV(rawText)
+		if rawText is not "" and rawText is not lastSig then
+			set lastSig to rawText
+			set kv to my parseKV(rawText)
 
-				set lblVal to my dictGet(kv, "label", "")
-				set phaseVal to my dictGet(kv, "phase", "Läuft…")
-				set detailVal to my dictGet(kv, "detail", "")
-				set stepVal to my dictGet(kv, "step", "")
-				set totalVal to my dictGet(kv, "total", "")
-				set statusVal to my dictGet(kv, "status", "running")
+			set lblVal to my dictGet(kv, "label", "")
+			set phaseVal to my dictGet(kv, "phase", "Läuft…")
+			set detailVal to my dictGet(kv, "detail", "")
+			set stepVal to my dictGet(kv, "step", "")
+			set totalVal to my dictGet(kv, "total", "")
+			set statusVal to my dictGet(kv, "status", "running")
+			set folderVal to my dictGet(kv, "folder", "")
+			set mdVal to my dictGet(kv, "mdfile", "")
 
-				fileField's setStringValue:lblVal
-				phaseField's setStringValue:phaseVal
-				detailField's setStringValue:detailVal
+			fileField's setStringValue:lblVal
+			phaseField's setStringValue:phaseVal
+			detailField's setStringValue:detailVal
 
-				if stepVal is not "" and totalVal is not "" then
-					try
-						progBar's setIndeterminate:false
-						progBar's setMaxValue:(totalVal as real)
-						progBar's setDoubleValue:(stepVal as real)
-					end try
-				else
-					progBar's setIndeterminate:true
-					progBar's startAnimation:(missing value)
-				end if
+			if folderVal is not "" then set ButtonBridge's folderPath to folderVal
+			if mdVal is not "" then set ButtonBridge's mdPath to mdVal
 
-				if statusVal is "done" then
-					phaseField's setStringValue:("✓ Fertig: " & lblVal)
+			if stepVal is not "" and totalVal is not "" then
+				try
 					progBar's setIndeterminate:false
-					progBar's setMaxValue:1.0
-					progBar's setDoubleValue:1.0
-					try
-						(current application's NSSound's soundNamed:"Glass")'s play()
-					end try
-					set exitAt to ((current date) + 3)
-				else if statusVal is "error" then
-					phaseField's setStringValue:("❌ Fehler: " & lblVal)
-					progBar's setIndeterminate:false
-					try
-						(current application's NSSound's soundNamed:"Funk")'s play()
-					end try
-					set exitAt to ((current date) + 6)
-				end if
+					progBar's setMaxValue:(totalVal as real)
+					progBar's setDoubleValue:(stepVal as real)
+				end try
+			else
+				progBar's setIndeterminate:true
+				progBar's startAnimation:(missing value)
+			end if
+
+			if statusVal is "done" and not finished then
+				phaseField's setStringValue:("✓ Fertig: " & lblVal)
+				progBar's setIndeterminate:false
+				progBar's setMaxValue:1.0
+				progBar's setDoubleValue:1.0
+				progBar's stopAnimation:(missing value)
+				openBtn's setEnabled:true
+				try
+					(current application's NSSound's soundNamed:"Glass")'s play()
+				end try
+				set finished to true
+			else if statusVal is "error" and not finished then
+				phaseField's setStringValue:("❌ Fehler: " & lblVal)
+				progBar's setIndeterminate:false
+				progBar's stopAnimation:(missing value)
+				if folderVal is not "" then openBtn's setEnabled:true
+				try
+					(current application's NSSound's soundNamed:"Funk")'s play()
+				end try
+				set finished to true
 			end if
 		end if
 
-		-- Pump event loop for 0.4s
+		-- Pump event loop 0.4s
 		set endDate to (current application's NSDate's dateWithTimeIntervalSinceNow:0.4)
 		(current application's NSRunLoop's mainRunLoop()'s runUntilDate:endDate)
 
-		if exitAt is not missing value then
-			if (current date) ≥ exitAt then exit repeat
-		end if
-
-		-- User hat Fenster geschlossen?
+		-- User hat Fenster manuell geschlossen?
 		if not (theWindow's isVisible() as boolean) then exit repeat
 	end repeat
 
