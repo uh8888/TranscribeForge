@@ -1,0 +1,9 @@
+{
+  "name": "transcribeforge-skill",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
+    "openai": "^4.52.7"
+  }
+}
