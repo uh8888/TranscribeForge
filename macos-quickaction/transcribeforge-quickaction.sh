@@ -187,16 +187,18 @@ process_one() {
       --output "$mdpath" > "$runlog" 2>&1
     rc=$?
   else
-    write_status "running" "$label" "Whisper transkribiert" "Sprache: $TF_LANG" "2" "4"
+    write_status "running" "$label" "Whisper + Frame-Analyse + Summary" "Sprache: $TF_LANG" "2" "4"
     "$NODE_BIN" "$TF_SKILL_DIR/scripts/transcribe.js" \
       --video "$input" \
-      --lang "$TF_LANG" > "$runlog" 2>&1
+      --lang "$TF_LANG" \
+      --summary \
+      --summary-model "$TF_SUMMARY_MODEL" > "$runlog"
     rc=$?
     if [ $rc -eq 0 ]; then
       {
-        echo "# Transkript: $label"
+        echo "# Briefing: $label"
         echo
-        echo "_Generiert: $(date '+%Y-%m-%d %H:%M')_"
+        echo "_Generiert: $(date '+%Y-%m-%d %H:%M')_  •  Quelle: \`$(basename "$input")\`"
         echo
         cat "$runlog"
       } > "$mdpath"
