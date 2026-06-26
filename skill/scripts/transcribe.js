@@ -13,17 +13,23 @@
  *   --video <pfad>    Lokale Video-/Audiodatei (Pflicht wenn kein --url).
  *   --url <url>       YouTube- oder Vimeo-URL; wird via yt-dlp heruntergeladen.
  *   --lang <code>     Sprache für Whisper (default: de). "auto" = automatisch erkennen.
- *   --interval <sec>  Sekunden zwischen zwei Frames (default: 3). Höher = billiger.
+ *   --interval <sec>  Sekunden zwischen zwei Frames (default: 2). Höher = billiger.
  *   --model <id>      Claude-Modell für Frame-Analyse (default: claude-haiku-4-5-20251001).
  *   --no-frames       Frame-Extraktion und -Analyse überspringen (~$0.63/90 min statt ~$3.35).
+ *   --diarize         Single-Stream-Sprecher-Diarisation via pyannote (default: aus).
+ *                     Erfordert HF_TOKEN + python/.venv mit pyannote.audio (siehe README).
+ *   --speakers <list> Komma-getrennte Namen für SPEAKER_00, SPEAKER_01, … in
+ *                     Reihenfolge des ersten Auftretens (z.B. "Uwe,Bastian").
+ *   --min-speakers N  Pyannote-Hyperparameter (optional).
+ *   --max-speakers N  Pyannote-Hyperparameter (optional).
  *
  * Voraussetzung für --url: yt-dlp muss installiert sein (brew install yt-dlp).
  */
 
-import { existsSync, mkdirSync, unlinkSync, readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { createReadStream } from 'fs';
-import { resolve, basename, join } from 'path';
-import { exec } from 'child_process';
+import { resolve, basename, dirname, join } from 'path';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { tmpdir } from 'os';
 import OpenAI from 'openai';
@@ -51,11 +57,22 @@ function getArg(flag, def = null) {
 const videoArg     = getArg('--video');
 const urlArg       = getArg('--url');
 const lang         = getArg('--lang', 'de');
-const interval     = parseInt(getArg('--interval', '3'), 10);
+const interval     = parseInt(getArg('--interval', '2'), 10);
 const frameModel   = getArg('--model', 'claude-haiku-4-5-20251001');
 const noFrames     = args.includes('--no-frames');
 const wantSummary  = args.includes('--summary');
 const summaryModel = getArg('--summary-model', 'claude-sonnet-4-6');
+
+// ── Diarisation-Optionen (additiv, Default OFF) ──────────────────────────────
+const wantDiarize     = args.includes('--diarize');
+const speakersRaw     = getArg('--speakers', '');
+const speakerNames    = speakersRaw
+  ? speakersRaw.split(',').map(s => s.trim()).filter(Boolean)
+  : [];
+const diarMinSpeakers = getArg('--min-speakers', null);
+const diarMaxSpeakers = getArg('--max-speakers', null);
+const DIARIZE_SCRIPT  = '/Users/uhi/Projects/TranscribeForge/python/diarize.py';
+const DIARIZE_VENV    = '/Users/uhi/Projects/TranscribeForge/python/.venv/bin/python3';
 
 if (!videoArg && !urlArg) {
   console.error('Fehler: --video <pfad> oder --url <youtube/vimeo-url> ist erforderlich.');
@@ -74,6 +91,101 @@ function formatTime(sec) {
 
 function safeUnlink(p) {
   try { if (p && existsSync(p)) unlinkSync(p); } catch {}
+}
+
+// ── Progress (live in Status-Datei der Quick Action schreiben) ────────────────
+const STATUS_FILE   = process.env.TF_STATUS_FILE   || '';
+const STATUS_LABEL  = process.env.TF_STATUS_LABEL  || '';
+const STATUS_FOLDER = process.env.TF_STATUS_FOLDER || '';
+const METRICS_FILE  = process.env.TF_METRICS_FILE  || '';
+// Wrapper-PID muss in jeder Status-File-Zeile erhalten bleiben, sonst kann der
+// Stop-Button des Progress-Windows den Wrapper nicht per kill -TERM erreichen.
+// Bash-Wrapper exportiert TF_STATUS_WRAPPER_PID=$$ vor dem Node-Aufruf.
+const STATUS_WRAPPER_PID = process.env.TF_STATUS_WRAPPER_PID || '';
+// Frame-Cache: bei Whisper-/Summary-Fehler bleibt die teure Frame-Analyse erhalten,
+// damit ein Re-Run nicht alle Haiku-Tokens noch einmal zahlt.
+const FRAMES_CACHE  = process.env.TF_FRAMES_CACHE  || '';
+
+function setProgress(percent, phase, detail = '', opts = {}) {
+  if (!STATUS_FILE) return;
+  try {
+    const lines = [
+      'status=running',
+      `label=${STATUS_LABEL}`,
+      `phase=${phase}`,
+      `detail=${detail}`,
+      `step=${Math.max(0, Math.min(100, Math.round(percent)))}`,
+      'total=100',
+    ];
+    if (STATUS_FOLDER) lines.push(`folder=${STATUS_FOLDER}`);
+    if (STATUS_WRAPPER_PID) lines.push(`wrapper_pid=${STATUS_WRAPPER_PID}`);
+    // Indeterminate-Phasen (Whisper-/Summary-API-Call): kein echter Fortschritt,
+    // Progress-App animiert dann den Balken und hängt „läuft seit XX s…" an.
+    if (opts.indeterminate) lines.push('phase_indeterminate=1');
+    if (opts.startedAt) lines.push(`phase_started_at=${opts.startedAt}`);
+    writeFileSync(STATUS_FILE, lines.join('\n') + '\n');
+  } catch {}
+}
+
+// ETA-Formatierer: 95 → "ca. 1:35 Min", 12 → "ca. 12 s", 720 → "ca. 12 Min"
+function formatEta(seconds) {
+  if (!seconds || seconds < 0 || !isFinite(seconds)) return '';
+  const s = Math.round(seconds);
+  if (s < 60) return `ca. ${s} s`;
+  if (s < 600) return `ca. ${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')} Min`;
+  return `ca. ${Math.round(s/60)} Min`;
+}
+
+// "5 von ca. 18 Min" — Format für Live-Progress-Detail
+function etaElapsedOf(elapsedSec, totalEtaSec) {
+  const e = Math.max(0, Math.floor(elapsedSec / 60));
+  const t = Math.max(e, Math.round(totalEtaSec / 60));
+  return `${e} von ca. ${t} Min`;
+}
+
+function costSoFarUsd() {
+  return costs.whisper + costs.frames + costs.compact + costs.summary;
+}
+
+// Globale ETA-Schätzung — wird in analyseFrames anhand der gemessenen Rate
+// fortlaufend angepasst, damit Whisper-/Summary-Phasen weiterhin eine sinnvolle
+// Gesamtschätzung anzeigen.
+let scriptT0 = Date.now();
+let etaTotalSec = 0;
+
+function progressDetail(model) {
+  const elapsed = (Date.now() - scriptT0) / 1000;
+  const etaStr = etaTotalSec > 0 ? ` · ETA: ${etaElapsedOf(elapsed, etaTotalSec)}` : '';
+  return `Modell: ${model}${etaStr} · Bisher: ~$${costSoFarUsd().toFixed(2)}`;
+}
+
+// ── Kosten-Tracking ───────────────────────────────────────────────────────────
+// USD pro Million Tokens (Anthropic, Stand 06/2026 — bei Änderung aktualisieren).
+// Whisper: USD pro Audio-Minute.
+const PRICING = {
+  'claude-haiku-4-5-20251001': { input: 1.00,  output: 5.00  },
+  'claude-haiku-4-5':          { input: 1.00,  output: 5.00  },
+  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00 },
+  'claude-sonnet-4-7':         { input: 3.00,  output: 15.00 },
+  'claude-opus-4-7':           { input: 15.00, output: 75.00 },
+  'whisper-1':                 { perMinute: 0.006 },
+};
+
+const costs = { whisper: 0, frames: 0, compact: 0, summary: 0,
+                audio_min: 0, frames_in: 0, frames_out: 0,
+                summary_in: 0, summary_out: 0 };
+
+function addClaudeCost(model, usage, bucket) {
+  if (!usage) return;
+  const p = PRICING[model] || { input: 3.00, output: 15.00 };
+  const inUsd  = (usage.input_tokens  || 0) / 1_000_000 * p.input;
+  const outUsd = (usage.output_tokens || 0) / 1_000_000 * p.output;
+  costs[bucket] += inUsd + outUsd;
+  if (bucket === 'frames')  { costs.frames_in  += usage.input_tokens||0; costs.frames_out  += usage.output_tokens||0; }
+  if (bucket === 'compact' || bucket === 'summary') {
+    costs.summary_in  += usage.input_tokens||0;
+    costs.summary_out += usage.output_tokens||0;
+  }
 }
 
 // Retry-Wrapper für Netzwerk-Fehler (ECONNRESET, Timeouts, 5xx).
@@ -110,17 +222,183 @@ async function extractAudio(inputFile, outWav) {
   await execAsync(`ffmpeg -y -i "${inputFile}" -vn -ar 16000 -ac 1 -c:a pcm_s16le "${outWav}" 2>&1`);
 }
 
-async function compressIfNeeded(wavFile) {
-  if (statSync(wavFile).size <= MAX_WHISPER_BYTES) return wavFile;
+// Bereitet Whisper-Eingaben vor: komprimiert auf 64 kbps mono MP3 und splittet
+// in 30-Min-Chunks, falls die komprimierte Datei das Whisper-25-MB-Limit
+// überschreiten würde. Gibt eine Liste {file, offsetSec} zurück.
+async function prepareWhisperChunks(wavFile) {
   const mp3File = wavFile.replace('.wav', '.mp3');
-  await execAsync(`ffmpeg -y -i "${wavFile}" -b:a 64k "${mp3File}" 2>&1`);
-  return mp3File;
+  process.stderr.write('Audio → 64 kbps MP3…');
+  await execAsync(`ffmpeg -y -i "${wavFile}" -ac 1 -b:a 64k "${mp3File}" 2>&1`);
+  const mp3Size = statSync(mp3File).size;
+  process.stderr.write(` ${(mp3Size/1024/1024).toFixed(1)} MB`);
+
+  if (mp3Size <= MAX_WHISPER_BYTES) {
+    process.stderr.write(' ✓ (1 Chunk)\n');
+    return [{ file: mp3File, offsetSec: 0 }];
+  }
+
+  // Splitten: 30-Min-Chunks (1800 s × 8 KB/s = 14,4 MB pro Chunk bei 64 kbps)
+  const CHUNK_SEC = 1800;
+  const durationSec = statSync(wavFile).size / 32000;
+  const numChunks = Math.ceil(durationSec / CHUNK_SEC);
+  process.stderr.write(` → splitten in ${numChunks} Chunks à ${CHUNK_SEC/60} min\n`);
+
+  const dir = dirname(mp3File);
+  const base = basename(mp3File, '.mp3');
+  const pattern = join(dir, `${base}_chunk_%03d.mp3`);
+  await execAsync(`ffmpeg -y -i "${mp3File}" -f segment -segment_time ${CHUNK_SEC} -c copy "${pattern}" 2>&1`);
+  safeUnlink(mp3File);
+
+  const chunkFiles = readdirSync(dir)
+    .filter(f => f.startsWith(`${base}_chunk_`) && f.endsWith('.mp3'))
+    .sort()
+    .map((f, i) => ({ file: join(dir, f), offsetSec: i * CHUNK_SEC }));
+  process.stderr.write(`  ${chunkFiles.length} Chunks erzeugt\n`);
+  return chunkFiles;
+}
+
+// Whisper parallel über alle Chunks, Segmente mit Offset mergen.
+async function transcribeChunks(chunks) {
+  const results = await Promise.all(chunks.map((c, i) =>
+    withRetry(() => openai.audio.transcriptions.create({
+      model: 'whisper-1',
+      file: createReadStream(c.file),
+      language: lang === 'auto' ? undefined : lang,
+      response_format: 'verbose_json',
+      timestamp_granularities: ['segment'],
+    }), `Whisper-Chunk ${i + 1}/${chunks.length}`)
+  ));
+
+  // Offsets aus den tatsächlichen Chunk-Durations aufaddieren (ffmpeg -c copy
+  // schneidet auf Keyframes — Chunk-Längen weichen leicht von CHUNK_SEC ab).
+  const segments = [];
+  let totalDuration = 0;
+  let runningOffset = 0;
+  const textParts = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const chunkDur = r.duration || 0;
+    totalDuration += chunkDur;
+    textParts.push(r.text || '');
+    (r.segments || []).forEach(s => segments.push({
+      ...s,
+      start: (s.start || 0) + runningOffset,
+      end:   (s.end   || 0) + runningOffset,
+    }));
+    runningOffset += chunkDur;
+  }
+  return { segments, duration: totalDuration, text: textParts.join(' ') };
+}
+
+// ── pyannote-Diarisation (Single-Stream) ─────────────────────────────────────
+// Ruft python/diarize.py als Subprozess auf. Bewusst defensiv: bei JEDEM
+// Fehler wird `null` zurückgegeben, der Caller läuft mit normalem Whisper-
+// Output ohne Sprecher-Labels weiter (kein Crash).
+async function runDiarization(audioFile) {
+  return new Promise(resolve => {
+    const pyBin = existsSync(DIARIZE_VENV) ? DIARIZE_VENV : 'python3';
+    const cliArgs = [DIARIZE_SCRIPT, '--audio', audioFile];
+    if (diarMinSpeakers) cliArgs.push('--min-speakers', String(diarMinSpeakers));
+    if (diarMaxSpeakers) cliArgs.push('--max-speakers', String(diarMaxSpeakers));
+
+    if (!existsSync(DIARIZE_SCRIPT)) {
+      process.stderr.write(`Diarisation übersprungen: ${DIARIZE_SCRIPT} fehlt.\n`);
+      return resolve(null);
+    }
+
+    let stdout = '';
+    let stderr = '';
+    const child = spawn(pyBin, cliArgs, {
+      env: { ...process.env },
+    });
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('error', err => {
+      process.stderr.write(`Diarisation übersprungen (spawn-Fehler): ${err.message}\n`);
+      resolve(null);
+    });
+    child.on('close', code => {
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        process.stderr.write(`Diarisation übersprungen (kein Output, exit=${code}): ${stderr.slice(-400)}\n`);
+        return resolve(null);
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.error) {
+          process.stderr.write(`Diarisation übersprungen: ${parsed.error}\n${parsed.hint ? `Hinweis: ${parsed.hint}\n` : ''}`);
+          return resolve(null);
+        }
+        if (!Array.isArray(parsed.turns) || parsed.turns.length === 0) {
+          process.stderr.write(`Diarisation übersprungen: leere Turn-Liste.\n`);
+          return resolve(null);
+        }
+        resolve(parsed);
+      } catch (e) {
+        process.stderr.write(`Diarisation übersprungen (JSON-Parse-Fehler): ${e.message}\n`);
+        resolve(null);
+      }
+    });
+  });
+}
+
+// Mappt SPEAKER_00/01/… auf Klarnamen aus --speakers <a,b,c> in Reihenfolge
+// des ersten Auftretens. SPEAKER_XX ohne Mapping bleibt als Label erhalten.
+function buildSpeakerLabelMap(turns, names) {
+  const map = new Map();
+  if (!names || names.length === 0) return map;
+  let nameIdx = 0;
+  for (const t of turns) {
+    if (!map.has(t.speaker) && nameIdx < names.length) {
+      map.set(t.speaker, names[nameIdx++]);
+    }
+  }
+  return map;
+}
+
+// Größter zeitlicher Overlap zwischen Whisper-Segment und Diarisation-Turns.
+function pickDominantSpeaker(segStart, segEnd, turns) {
+  let bestSpeaker = null;
+  let bestOverlap = 0;
+  for (const t of turns) {
+    const overlap = Math.max(0, Math.min(segEnd, t.end) - Math.max(segStart, t.start));
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestSpeaker = t.speaker;
+    }
+  }
+  return bestSpeaker;
+}
+
+// Baut den fertigen Speaker-Transkript-Block "[MM:SS – Name]: text".
+// Verschmilzt konsekutive Segmente desselben Sprechers zu einem Absatz.
+function buildSpeakerTranscript(segments, turns, labelMap) {
+  const labeled = segments.map(seg => {
+    const start = seg.start || 0;
+    const end   = seg.end   || start;
+    const rawSp = pickDominantSpeaker(start, end, turns) || 'SPEAKER_??';
+    const name  = labelMap.get(rawSp) || rawSp;
+    return { start, end, name, text: (seg.text || '').trim() };
+  }).filter(s => s.text);
+
+  // konsekutive Segmente desselben Sprechers mergen
+  const merged = [];
+  for (const s of labeled) {
+    const last = merged[merged.length - 1];
+    if (last && last.name === s.name) {
+      last.text += ' ' + s.text;
+      last.end = s.end;
+    } else {
+      merged.push({ ...s });
+    }
+  }
+  return merged.map(m => `[${formatTime(Math.floor(m.start))} – ${m.name}]: ${m.text}`).join('\n\n');
 }
 
 // ── ffmpeg: Frames extrahieren ────────────────────────────────────────────────
 async function extractFrames(inputFile, framesDir) {
   mkdirSync(framesDir, { recursive: true });
-  await execAsync(`ffmpeg -y -i "${inputFile}" -vf "fps=1/${interval},scale=1280:-2" -q:v 4 "${framesDir}/frame_%04d.jpg" 2>&1`);
+  await execAsync(`ffmpeg -y -i "${inputFile}" -vf "fps=1/${interval},scale=1024:-2" -q:v 4 "${framesDir}/frame_%04d.jpg" 2>&1`);
   return readdirSync(framesDir)
     .filter(f => f.endsWith('.jpg'))
     .sort()
@@ -132,10 +410,30 @@ async function analyseFrames(frames) {
   const BATCH = 5;
   const results = [];
   const totalBatches = Math.ceil(frames.length / BATCH);
+  // Initiale Rate (Haiku, 5 Bilder/Batch): ~12 s — wird ab Batch 2 durch Messung ersetzt.
+  const INITIAL_RATE_SEC = 12;
+  const framesT0 = Date.now();
+  // Erste Gesamtschätzung: Frame-Zeit + 90 s Puffer für Whisper + Summary.
+  if (etaTotalSec === 0) {
+    etaTotalSec = (totalBatches * INITIAL_RATE_SEC) + 90;
+  }
 
   for (let i = 0; i < frames.length; i += BATCH) {
     const batchNum = Math.floor(i / BATCH) + 1;
     process.stderr.write(`\rFrame-Analyse: Batch ${batchNum}/${totalBatches}…   `);
+
+    const framesElapsed = (Date.now() - framesT0) / 1000;
+    const doneBatches = batchNum - 1;
+    const ratePerBatch = doneBatches > 0 ? framesElapsed / doneBatches : INITIAL_RATE_SEC;
+    const framesRemaining = ratePerBatch * (totalBatches - doneBatches);
+    // Total-ETA = bisheriges Skript-Elapsed + verbleibende Frame-Zeit + 90 s Puffer.
+    const scriptElapsed = (Date.now() - scriptT0) / 1000;
+    etaTotalSec = scriptElapsed + framesRemaining + 90;
+
+    // 5-55 % Progress-Range für Frames
+    setProgress(5 + (batchNum - 1) / totalBatches * 50,
+      `Frame-Analyse (Batch ${batchNum}/${totalBatches})`,
+      progressDetail(frameModel));
 
     const batch = frames.slice(i, i + BATCH);
     const imageContent = batch.map(f => ({
@@ -158,6 +456,7 @@ async function analyseFrames(frames) {
         max_tokens: 600,
         messages: [{ role: 'user', content: [...imageContent, labelContent] }],
       }), `Frame-Batch ${batchNum}`);
+      addClaudeCost(frameModel, msg.usage, 'frames');
       results.push((msg.content.find(b => b.type === 'text')?.text || '').trim());
     } catch (e) {
       results.push(batch.map(f => `${formatTime(f.timestampSec)} – (Fehler: ${e.message})`).join('\n'));
@@ -198,6 +497,7 @@ Frame-Beschreibungen:
 ${rawFrameLog}`,
     }],
   }), 'compactFrameLog');
+  addClaudeCost(summaryModel, msg.usage, 'compact');
   return (msg.content.find(b => b.type === 'text')?.text || '').trim();
 }
 
@@ -267,6 +567,7 @@ REGELN:
 - NICHT die Visual Timeline wiederholen — die wird separat darunter angehängt.`,
     }],
   }), 'generateSummary');
+  addClaudeCost(summaryModel, msg.usage, 'summary');
   return (msg.content.find(b => b.type === 'text')?.text || '').trim();
 }
 
@@ -275,7 +576,7 @@ REGELN:
   const base        = join(tmpdir(), `tf-${Date.now()}`);
   const wavFile     = base + '.wav';
   const framesDir   = base + '_frames';
-  let   audioFile   = null;
+  let   audioFiles  = [];
   let   tempDownload = null;
 
   try {
@@ -298,9 +599,26 @@ REGELN:
     const modeLabel = noFrames ? 'audio-only' : `interval=${interval}s | model=${frameModel}`;
     process.stderr.write(`Video: ${basename(videoPath)} | lang=${lang} | ${modeLabel}${wantSummary ? ` | summary=${summaryModel}` : ''}\n`);
 
-    // 1. Audio extrahieren (+ optional Frames parallel)
-    let rawFrameLog = '';
-    if (noFrames) {
+    scriptT0 = Date.now();
+
+    // Frame-Cache prüfen: ist eine frühere Frame-Analyse vorhanden und jünger als das Video?
+    let cachedFrameLog = '';
+    if (FRAMES_CACHE && !noFrames && existsSync(FRAMES_CACHE)) {
+      try {
+        const cacheMtime = statSync(FRAMES_CACHE).mtimeMs;
+        const videoMtime = statSync(videoPath).mtimeMs;
+        const cacheContent = readFileSync(FRAMES_CACHE, 'utf8');
+        if (cacheMtime >= videoMtime && cacheContent.trim().length > 0) {
+          cachedFrameLog = cacheContent;
+          process.stderr.write(`Frame-Cache gefunden (${(cacheContent.length/1024).toFixed(1)} KB) — Frame-Analyse wird übersprungen\n`);
+        }
+      } catch {}
+    }
+
+    setProgress(2, 'Audio & Frames extrahieren', 'ffmpeg läuft (~10–30 s)…');
+    // 1. Audio extrahieren (+ optional Frames parallel, falls kein Cache)
+    let rawFrameLog = cachedFrameLog;
+    if (noFrames || cachedFrameLog) {
       process.stderr.write('Audio extrahieren…');
       await extractAudio(videoPath, wavFile);
       process.stderr.write(' ✓\n');
@@ -312,20 +630,27 @@ REGELN:
       ]);
       process.stderr.write(` ✓ (${frames.length} Frames)\n`);
 
-      // 2. Frame-Analyse
+      // 2. Frame-Analyse (Progress 5-55 %)
       rawFrameLog = await analyseFrames(frames);
+      // Sofort persistieren, damit ein späterer Whisper-/Summary-Fehler die
+      // teure Frame-Analyse nicht killt.
+      if (FRAMES_CACHE && rawFrameLog) {
+        try { writeFileSync(FRAMES_CACHE, rawFrameLog); } catch {}
+      }
     }
 
-    // 3. Whisper — verbose_json + Segment-Filter (Halluzinationen raus)
-    process.stderr.write('Whisper Transkription…');
-    audioFile = await compressIfNeeded(wavFile);
-    const transcription = await withRetry(() => openai.audio.transcriptions.create({
-      model: 'whisper-1',
-      file:  createReadStream(audioFile),
-      language: lang === 'auto' ? undefined : lang,
-      response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
-    }), 'Whisper');
+    // 3. Whisper — Audio vorbereiten (MP3 64k, ggf. in 30-Min-Chunks splitten),
+    //    Chunks parallel transkribieren, Segment-Offsets korrigieren, Filter.
+    setProgress(60, 'Whisper Transkription', progressDetail(`whisper-1 (${lang})`),
+      { indeterminate: true, startedAt: Math.floor(Date.now() / 1000) });
+    const whisperChunks = await prepareWhisperChunks(wavFile);
+    audioFiles = whisperChunks.map(c => c.file);
+    process.stderr.write(`Whisper Transkription (${whisperChunks.length} Chunk${whisperChunks.length > 1 ? 's' : ''})…`);
+    const transcription = await transcribeChunks(whisperChunks);
+    if (transcription.duration) {
+      costs.audio_min = transcription.duration / 60;
+      costs.whisper = costs.audio_min * PRICING['whisper-1'].perMinute;
+    }
 
     const HALLUCINATIONS = /amara\.org|untertitel von|untertitel der|\[musik\]|\[applaus\]|\[stille\]/i;
     const cleaned = (transcription.segments || []).filter(seg => {
@@ -348,23 +673,61 @@ REGELN:
       : (transcription.text || '');
     process.stderr.write(` ✓ (${deduped.length} Segmente)\n`);
 
+    // 3b. Optional: pyannote-Diarisation auf demselben Audio.
+    //     Bei Fehlern → diarTranscript bleibt leer und Original-Pfad greift.
+    let diarTranscript = '';
+    let diarMeta = null;
+    if (wantDiarize) {
+      setProgress(70, 'Sprecher-Diarisation (pyannote)',
+        `Modell: speaker-diarization-3.1${speakerNames.length ? ` · Map: ${speakerNames.join(',')}` : ''}`,
+        { indeterminate: true, startedAt: Math.floor(Date.now() / 1000) });
+      // Erstes Whisper-Chunk-MP3 wird als Diarisations-Input genutzt; bei
+      // mehreren Chunks fällt die Logik zurück auf die WAV-Originaldatei,
+      // damit der Speaker-Index über das gesamte Audio konsistent bleibt.
+      const diarSource = (whisperChunks.length === 1 && existsSync(whisperChunks[0].file))
+        ? whisperChunks[0].file
+        : wavFile;
+      process.stderr.write('Sprecher-Diarisation (pyannote)…');
+      diarMeta = await runDiarization(diarSource);
+      if (diarMeta && deduped.length) {
+        const labelMap = buildSpeakerLabelMap(diarMeta.turns, speakerNames);
+        diarTranscript = buildSpeakerTranscript(deduped, diarMeta.turns, labelMap);
+        process.stderr.write(` ✓ (${diarMeta.num_speakers} Sprecher, ${diarMeta.turns.length} Turns)\n`);
+      } else if (diarMeta) {
+        process.stderr.write(' ✓ (Diarisation ok, aber keine Whisper-Segmente zum Mergen)\n');
+      } else {
+        process.stderr.write(' (übersprungen — siehe Hinweise oben)\n');
+      }
+    }
+
     // 4. Optional: Frame-Log verdichten + Summary erzeugen
     let visualTimeline = '';
     let summary = '';
     if (wantSummary) {
       if (rawFrameLog) {
         process.stderr.write('Frame-Log verdichten…');
+        setProgress(75, 'Visual Timeline verdichten', progressDetail(summaryModel),
+          { indeterminate: true, startedAt: Math.floor(Date.now() / 1000) });
         visualTimeline = await compactFrameLog(rawFrameLog);
         process.stderr.write(' ✓\n');
       }
       process.stderr.write('Summary + Action Items erzeugen…');
+      setProgress(85, 'Summary + Action Items', progressDetail(summaryModel),
+        { indeterminate: true, startedAt: Math.floor(Date.now() / 1000) });
       summary = await generateSummary(transcriptText, visualTimeline);
       process.stderr.write(' ✓\n');
     }
+    setProgress(95, 'Ergebnis schreiben', '');
 
     // 5. Strukturierter Markdown-Output (--summary) oder Legacy-Output
+    //    Bei aktivem --diarize wird das Speaker-Transkript bevorzugt, das
+    //    Plaintext-Transkript zusätzlich darunter erhalten (rückwärtskompat.).
     if (wantSummary) {
       console.log(summary);
+      if (diarTranscript) {
+        console.log('\n## Sprecher-Transkript\n');
+        console.log(diarTranscript);
+      }
       console.log('\n## Volltranskript\n');
       console.log(transcriptText);
       if (visualTimeline) {
@@ -378,15 +741,46 @@ REGELN:
         console.log('══════════════════════════════════════════════════════');
         console.log(rawFrameLog);
       }
+      if (diarTranscript) {
+        console.log('\n══════════════════════════════════════════════════════');
+        console.log('SPRECHER-TRANSKRIPT');
+        console.log('══════════════════════════════════════════════════════');
+        console.log(diarTranscript);
+      }
       console.log('\n══════════════════════════════════════════════════════');
       console.log('TRANSKRIPT');
       console.log('══════════════════════════════════════════════════════');
       console.log(transcriptText);
     }
 
+    // 6. Metrics-Datei für Quick-Action-Wrapper (Token-Kosten in MD-Header)
+    const totalUsd = costs.whisper + costs.frames + costs.compact + costs.summary;
+    if (METRICS_FILE) {
+      try {
+        writeFileSync(METRICS_FILE, JSON.stringify({
+          total_usd: totalUsd,
+          whisper_usd: costs.whisper,
+          frames_usd: costs.frames,
+          compact_usd: costs.compact,
+          summary_usd: costs.summary,
+          audio_minutes: costs.audio_min,
+          frame_model: frameModel,
+          summary_model: summaryModel,
+          frames_tokens_in: costs.frames_in,
+          frames_tokens_out: costs.frames_out,
+          summary_tokens_in: costs.summary_in,
+          summary_tokens_out: costs.summary_out,
+        }, null, 2));
+      } catch (e) {
+        process.stderr.write(`Metrics-Datei konnte nicht geschrieben werden: ${e.message}\n`);
+      }
+    }
+    process.stderr.write(`Kosten: $${totalUsd.toFixed(4)} (Whisper $${costs.whisper.toFixed(4)} · Frames $${costs.frames.toFixed(4)} · Summary $${(costs.compact + costs.summary).toFixed(4)})\n`);
+    setProgress(99, 'Fertig', `Kosten: $${totalUsd.toFixed(2)}`);
+
   } finally {
     safeUnlink(wavFile);
-    if (audioFile && audioFile !== wavFile) safeUnlink(audioFile);
+    audioFiles.filter(f => f && f !== wavFile).forEach(safeUnlink);
     safeRmDir(framesDir);
     if (tempDownload) safeUnlink(tempDownload);
   }

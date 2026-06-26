@@ -58,6 +58,35 @@ Claude soll daraus eine zusammenhängende Analyse des Videoinhalts erstellen und
 
 ---
 
+## Single-Stream Diarisation (pyannote)
+
+Für Aufnahmen, in denen **EIN Mikrofon mehrere Sprecher** mitschneidet (iPhone-Mitschnitt eines Meetings im Raum). Whisper-Segmente werden per pyannote-audio Sprechern zugeordnet.
+
+```bash
+node ~/.claude/skills/transcribeForge/scripts/transcribe.js \
+  --video "/pfad/aufnahme.m4a" \
+  --diarize \
+  [--speakers "Uwe,Bastian"] \
+  [--min-speakers 2] [--max-speakers 4] \
+  [--no-frames]
+```
+
+**Flags:**
+- `--diarize` — pyannote-Pass aktivieren (Default: aus)
+- `--speakers <a,b,c>` — Klarnamen-Mapping für SPEAKER_00/01/… in Reihenfolge des ersten Auftretens
+- `--min-speakers N` / `--max-speakers N` — pyannote-Hyperparameter, optional
+
+**Voraussetzungen:**
+- `HF_TOKEN` in `/Users/uhi/Projects/TranscribeForge/.env`
+- EULA für `pyannote/speaker-diarization-3.1` + `pyannote/segmentation-3.0` im HF-Web-UI akzeptiert
+- Python-Venv unter `/Users/uhi/Projects/TranscribeForge/python/.venv/` mit `pyannote.audio`
+
+Setup-Details: siehe README.md (Abschnitt „Single-Stream Diarisation").
+
+**Verhalten bei Fehlern:** Wenn HF_TOKEN, Venv oder pyannote fehlen, wird die Diarisation übersprungen — Whisper-Output bleibt erhalten. Kein Crash.
+
+---
+
 ## Multi-Speaker-Modus (Zoom-Calls)
 
 Für Zoom-Aufnahmen mit separaten Sprecher-Dateien (Einstellung "Record a separate audio file for each participant").

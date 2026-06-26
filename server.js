@@ -76,12 +76,86 @@ function parseVideoUrl(raw) {
 }
 
 function parseOpts(body) {
+  const speakersRaw = (body.speakers || '').toString().trim();
   return {
     language:    body.language    || 'de',
     intervalSec: Math.max(1, Math.min(60, parseInt(body.frameInterval) || 3)),
     frameModel:  VALID_FRAME_MODELS.includes(body.frameModel) ? body.frameModel : 'claude-haiku-4-5-20251001',
     noFrames:    body.noFrames === true || body.noFrames === 'true',
+    diarize:     body.diarize === true || body.diarize === 'true',
+    speakers:    speakersRaw ? speakersRaw.split(',').map(s => s.trim()).filter(Boolean) : [],
+    minSpeakers: body.minSpeakers ? parseInt(body.minSpeakers) : null,
+    maxSpeakers: body.maxSpeakers ? parseInt(body.maxSpeakers) : null,
   };
+}
+
+// ── pyannote-Diarisation (optional, additiv) ───────────────────────────────
+// Defensiver Wrapper: bei jedem Fehler → null zurück, Caller läuft mit dem
+// normalen Whisper-Output weiter (kein Crash).
+const DIARIZE_PY      = join(__dirname, 'python', 'diarize.py');
+const DIARIZE_VENV_PY = join(__dirname, 'python', '.venv', 'bin', 'python3');
+
+function runDiarizationServer(audioFile, { minSpeakers, maxSpeakers }) {
+  return new Promise(resolve => {
+    if (!existsSync(DIARIZE_PY)) return resolve(null);
+    const pyBin = existsSync(DIARIZE_VENV_PY) ? DIARIZE_VENV_PY : 'python3';
+    const cliArgs = [DIARIZE_PY, '--audio', audioFile];
+    if (minSpeakers) cliArgs.push('--min-speakers', String(minSpeakers));
+    if (maxSpeakers) cliArgs.push('--max-speakers', String(maxSpeakers));
+    let stdout = '';
+    let stderr = '';
+    const child = spawn(pyBin, cliArgs, { env: { ...process.env } });
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      const trimmed = stdout.trim();
+      if (!trimmed) {
+        console.warn('Diarisation übersprungen:', stderr.slice(-300));
+        return resolve(null);
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.error || !Array.isArray(parsed.turns) || parsed.turns.length === 0) {
+          console.warn('Diarisation übersprungen:', parsed.error || 'leere Turns');
+          return resolve(null);
+        }
+        resolve(parsed);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+function buildSpeakerTranscriptServer(segments, turns, speakerNames) {
+  const labelMap = new Map();
+  if (speakerNames && speakerNames.length) {
+    let idx = 0;
+    for (const t of turns) {
+      if (!labelMap.has(t.speaker) && idx < speakerNames.length) {
+        labelMap.set(t.speaker, speakerNames[idx++]);
+      }
+    }
+  }
+  const labeled = segments.map(seg => {
+    const start = seg.start || 0;
+    const end   = seg.end   || start;
+    let best = null, bestOv = 0;
+    for (const t of turns) {
+      const ov = Math.max(0, Math.min(end, t.end) - Math.max(start, t.start));
+      if (ov > bestOv) { bestOv = ov; best = t.speaker; }
+    }
+    const name = labelMap.get(best) || best || 'SPEAKER_??';
+    return { start, end, name, text: (seg.text || '').trim() };
+  }).filter(s => s.text);
+  const merged = [];
+  for (const s of labeled) {
+    const last = merged[merged.length - 1];
+    if (last && last.name === s.name) { last.text += ' ' + s.text; last.end = s.end; }
+    else merged.push({ ...s });
+  }
+  return merged.map(m => `[${formatTime(Math.floor(m.start))} – ${m.name}]: ${m.text}`).join('\n\n');
 }
 
 // ── FFmpeg helpers ─────────────────────────────────────────────────────────
@@ -172,20 +246,58 @@ function convertToNetscapeCookies(raw) {
 }
 
 // ── yt-dlp download ────────────────────────────────────────────────────────
-async function downloadWithYtDlp(url, destPath, onProgress) {
-  onProgress?.('Video wird heruntergeladen…');
-  let authFlag = '';
-  const token = await getValidAccessToken();
-  if (token) {
-    authFlag = `--add-header "Authorization: Bearer ${token}"`;
-  } else if (ytCookiesActive()) {
-    authFlag = `--cookies "${YT_COOKIES_FILE}"`;
+function ytDlpAuthArgs() {
+  const potProvider = process.env.BGUTIL_POT_PROVIDER_URL || 'http://bgutil-provider:4416';
+  const potArg = `--extractor-args "youtubepot-bgutilhttp:base_url=${potProvider}"`;
+  if (ytCookiesActive()) {
+    return `${potArg} --cookies "${YT_COOKIES_FILE}" --extractor-args "youtube:player_client=web,mweb"`;
   }
-  const cmd = `yt-dlp --no-playlist --no-warnings ${authFlag} ` +
-    `-f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" ` +
-    `--merge-output-format mp4 -o "${destPath}" "${url}"`;
+  return potArg;
+}
+
+async function downloadWithYtDlp(url, destPath, onProgress, formatId) {
+  onProgress?.('Video wird heruntergeladen…');
+  const fmt = formatId && /^[\w+./@-]+$/.test(formatId)
+    ? formatId
+    : 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best';
+  const cmd = `yt-dlp --no-playlist --no-warnings ${ytDlpAuthArgs()} ` +
+    `-f "${fmt}" --merge-output-format mp4 -o "${destPath}" "${url}"`;
   await execAsync(cmd, { timeout: 600_000 });
 }
+
+// ── POST /api/video/formats — list available formats (YouTube + Vimeo) ──────
+app.post('/api/video/formats', async (req, res) => {
+  const url = (req.body?.url || '').trim();
+  if (!/^https?:\/\//.test(url)) return res.status(400).json({ error: 'Ungültige URL.' });
+  try {
+    const cmd = `yt-dlp --no-playlist --no-warnings --ignore-no-formats-error ${ytDlpAuthArgs()} --dump-single-json --skip-download "${url}"`;
+    const { stdout } = await execAsync(cmd, { timeout: 60_000, maxBuffer: 50 * 1024 * 1024 });
+    const info = JSON.parse(stdout);
+    const formats = (info.formats || [])
+      .filter(f => f.ext !== 'mhtml')
+      .map(f => ({
+        format_id: f.format_id,
+        ext: f.ext,
+        resolution: f.resolution || (f.height ? `${f.width || '?'}x${f.height}` : null),
+        height: f.height || null,
+        fps: f.fps || null,
+        vcodec: f.vcodec,
+        acodec: f.acodec,
+        filesize: f.filesize || f.filesize_approx || null,
+        tbr: f.tbr || null,
+        format_note: f.format_note || '',
+      }));
+    res.json({
+      title: info.title || '',
+      duration: info.duration || 0,
+      thumbnail: info.thumbnail || '',
+      formats,
+    });
+  } catch (e) {
+    const msg = (e.stderr || e.message || '').toString();
+    res.status(500).json({ error: msg.slice(-500) });
+  }
+});
 
 // ── GET /api/youtube/status ────────────────────────────────────────────────
 app.get('/api/youtube/status', (_req, res) => {
@@ -265,7 +377,15 @@ app.delete('/api/youtube/auth', (_req, res) => {
 });
 
 // ── POST /api/youtube/save-cookies ────────────────────────────────────────
+app.options('/api/youtube/save-cookies', (_req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }).status(204).end();
+});
 app.post('/api/youtube/save-cookies', (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
   const raw = (req.body?.cookies || '').trim();
   if (!raw) return res.status(400).json({ error: 'Kein Cookie-String übergeben.' });
   try {
@@ -293,7 +413,7 @@ app.get('/api/progress/:jobId', (req, res) => {
 
 // ── Core transcription pipeline ────────────────────────────────────────────
 async function transcribePipeline(videoPath, opts, jobId) {
-  const { language, intervalSec, frameModel, noFrames } = opts;
+  const { language, intervalSec, frameModel, noFrames, diarize, speakers, minSpeakers, maxSpeakers } = opts;
   let wavFile   = null;
   let audioFile = null;
   let frames    = [];
@@ -320,12 +440,29 @@ async function transcribePipeline(videoPath, opts, jobId) {
     setP(jobId, 2, 10, 'Whisper API…');
     const finalAudio = await compressIfNeeded(wavFile);
     audioFile = finalAudio;
-    const transcription = await openai.audio.transcriptions.create({
+    const whisperReq = {
       model:    'whisper-1',
       file:     createReadStream(audioFile),
       language: language === 'auto' ? undefined : language,
-    });
+    };
+    if (diarize) {
+      // Diarisation braucht Whisper-Segmente mit Zeitstempeln.
+      whisperReq.response_format = 'verbose_json';
+      whisperReq.timestamp_granularities = ['segment'];
+    }
+    const transcription = await openai.audio.transcriptions.create(whisperReq);
     setP(jobId, 2, 100, 'Transkript fertig');
+
+    // Step 2b: optional pyannote-Diarisation auf demselben Audio
+    let speakerTranscript = '';
+    let diarMeta = null;
+    if (diarize) {
+      setP(jobId, 2, 100, 'Sprecher-Diarisation…');
+      diarMeta = await runDiarizationServer(audioFile, { minSpeakers, maxSpeakers });
+      if (diarMeta && Array.isArray(transcription.segments) && transcription.segments.length) {
+        speakerTranscript = buildSpeakerTranscriptServer(transcription.segments, diarMeta.turns, speakers);
+      }
+    }
 
     // Step 3: Frame analysis (skipped when noFrames)
     let frameAnalysis = '';
@@ -369,7 +506,15 @@ async function transcribePipeline(videoPath, opts, jobId) {
     setP(jobId, 4, 100, 'Fertig');
     setTimeout(() => jobProgress.delete(jobId), 30_000);
 
-    return { transcript: transcription.text, frameCount: frames.length, frameAnalysis };
+    return {
+      transcript: transcription.text,
+      frameCount: frames.length,
+      frameAnalysis,
+      // Additiv: nur bei aktivem --diarize gesetzt, sonst leer/null —
+      // bestehende Clients ignorieren die Felder einfach.
+      speakerTranscript,
+      diarization: diarMeta,
+    };
 
   } finally {
     safeUnlink(wavFile);
@@ -412,7 +557,7 @@ app.post('/api/transcribe-url', async (req, res) => {
   try {
     // Download phase shown in step 1
     setP(jobId, 1, 5, 'Video wird heruntergeladen…');
-    await downloadWithYtDlp(parsed.url, destPath, label => setP(jobId, 1, 20, label));
+    await downloadWithYtDlp(parsed.url, destPath, label => setP(jobId, 1, 20, label), req.body?.format);
     setP(jobId, 1, 35, 'Download fertig, starte Verarbeitung…');
 
     const opts   = parseOpts(req.body);
