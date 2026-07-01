@@ -25,6 +25,25 @@ const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const app = express();
+
+// ── CORS (Upload-Endpoints laufen auf :8443, statische Assets auf :443) ────
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://transcribeforge.hiltmann.cloud',
+    'https://transcribeforge.hiltmann.cloud:8443',
+    'http://localhost:3001',
+  ];
+  if (origin && allowedOrigins.includes(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+  }
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, x-job-id');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
@@ -404,11 +423,32 @@ const jobProgress = new Map();
 
 function setP(jobId, step, pct, label) {
   if (!jobId) return;
-  jobProgress.set(jobId, { step, pct: Math.round(pct), label: label || '' });
+  const prev = jobProgress.get(jobId) || {};
+  jobProgress.set(jobId, {
+    ...prev,
+    step,
+    pct: Math.round(pct),
+    label: label || '',
+    status: prev.status || 'running',
+  });
+}
+
+function setJobResult(jobId, result) {
+  if (!jobId) return;
+  const prev = jobProgress.get(jobId) || {};
+  jobProgress.set(jobId, { ...prev, status: 'done', result });
+  setTimeout(() => jobProgress.delete(jobId), 5 * 60_000);
+}
+
+function setJobError(jobId, message) {
+  if (!jobId) return;
+  const prev = jobProgress.get(jobId) || {};
+  jobProgress.set(jobId, { ...prev, status: 'error', error: message });
+  setTimeout(() => jobProgress.delete(jobId), 5 * 60_000);
 }
 
 app.get('/api/progress/:jobId', (req, res) => {
-  res.json(jobProgress.get(req.params.jobId) || { step: 0, pct: 0, label: '' });
+  res.json(jobProgress.get(req.params.jobId) || { step: 0, pct: 0, label: '', status: 'unknown' });
 });
 
 // ── Core transcription pipeline ────────────────────────────────────────────
@@ -504,7 +544,6 @@ async function transcribePipeline(videoPath, opts, jobId) {
 
     // Step 4: Done
     setP(jobId, 4, 100, 'Fertig');
-    setTimeout(() => jobProgress.delete(jobId), 30_000);
 
     return {
       transcript: transcription.text,
@@ -523,61 +562,68 @@ async function transcribePipeline(videoPath, opts, jobId) {
   }
 }
 
-// ── POST /api/transcribe  (Datei-Upload) ───────────────────────────────────
-app.post('/api/transcribe', upload.single('video'), async (req, res) => {
+// ── POST /api/transcribe  (Datei-Upload, async) ────────────────────────────
+app.post('/api/transcribe', upload.single('video'), (req, res) => {
   const uploadedFile = req.file?.path;
   const jobId = req.headers['x-job-id'] || null;
 
-  try {
-    if (!req.file) return res.status(400).json({ error: 'Keine Videodatei empfangen.' });
-    const opts = parseOpts(req.body);
-    const result = await transcribePipeline(uploadedFile, opts, jobId);
-    res.json(result);
-  } catch (err) {
-    console.error('Transcription error:', err);
-    jobProgress.delete(jobId);
-    res.status(500).json({ error: `Fehler: ${err?.message || 'Unbekannt'}` });
-  } finally {
-    safeUnlink(uploadedFile);
-  }
+  if (!req.file) return res.status(400).json({ error: 'Keine Videodatei empfangen.' });
+  if (!jobId)    return res.status(400).json({ error: 'x-job-id Header fehlt.' });
+
+  const opts = parseOpts(req.body);
+  setP(jobId, 1, 1, 'Job angenommen…');
+  res.status(202).json({ jobId, status: 'accepted' });
+
+  transcribePipeline(uploadedFile, opts, jobId)
+    .then(result => setJobResult(jobId, result))
+    .catch(err => {
+      console.error('Transcription error:', err);
+      setJobError(jobId, err?.message || 'Unbekannt');
+    })
+    .finally(() => safeUnlink(uploadedFile));
 });
 
-// ── POST /api/transcribe-url  (YouTube / Vimeo) ────────────────────────────
-app.post('/api/transcribe-url', async (req, res) => {
+// ── POST /api/transcribe-url  (YouTube / Vimeo, async) ─────────────────────
+app.post('/api/transcribe-url', (req, res) => {
   const jobId  = req.headers['x-job-id'] || null;
   const parsed = parseVideoUrl(req.body?.url || '');
 
   if (!parsed) {
     return res.status(400).json({ error: 'Ungültige URL — nur YouTube und Vimeo werden unterstützt.' });
   }
+  if (!jobId) return res.status(400).json({ error: 'x-job-id Header fehlt.' });
 
   const tempId   = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
   const destPath = join(UPLOAD_DIR, `url-${tempId}.mp4`);
+  const opts     = parseOpts(req.body);
 
-  try {
-    // Download phase shown in step 1
-    setP(jobId, 1, 5, 'Video wird heruntergeladen…');
-    await downloadWithYtDlp(parsed.url, destPath, label => setP(jobId, 1, 20, label), req.body?.format);
-    setP(jobId, 1, 35, 'Download fertig, starte Verarbeitung…');
+  setP(jobId, 1, 1, 'Job angenommen…');
+  res.status(202).json({ jobId, status: 'accepted', platform: parsed.platform });
 
-    const opts   = parseOpts(req.body);
-    const result = await transcribePipeline(destPath, opts, jobId);
-    res.json({ ...result, platform: parsed.platform });
-  } catch (err) {
-    console.error('URL transcription error:', err);
-    jobProgress.delete(jobId);
-    const msg = err?.message || '';
-    const stderr = err?.stderr || '';
-    if (msg.includes('not found') || msg.includes('No such file') || (msg.includes('yt-dlp') && !stderr)) {
-      res.status(500).json({ error: 'yt-dlp nicht gefunden. Bitte installieren: brew install yt-dlp (macOS) oder pip install yt-dlp.' });
-    } else if (stderr) {
-      res.status(500).json({ error: `Download-Fehler: ${stderr.trim().split('\n').pop()}` });
-    } else {
-      res.status(500).json({ error: `Fehler: ${msg || 'Unbekannt'}` });
+  (async () => {
+    try {
+      setP(jobId, 1, 5, 'Video wird heruntergeladen…');
+      await downloadWithYtDlp(parsed.url, destPath, label => setP(jobId, 1, 20, label), req.body?.format);
+      setP(jobId, 1, 35, 'Download fertig, starte Verarbeitung…');
+      const result = await transcribePipeline(destPath, opts, jobId);
+      setJobResult(jobId, { ...result, platform: parsed.platform });
+    } catch (err) {
+      console.error('URL transcription error:', err);
+      const msg = err?.message || '';
+      const stderr = err?.stderr || '';
+      let display;
+      if (msg.includes('not found') || msg.includes('No such file') || (msg.includes('yt-dlp') && !stderr)) {
+        display = 'yt-dlp nicht gefunden. Bitte installieren: brew install yt-dlp (macOS) oder pip install yt-dlp.';
+      } else if (stderr) {
+        display = `Download-Fehler: ${stderr.trim().split('\n').pop()}`;
+      } else {
+        display = msg || 'Unbekannt';
+      }
+      setJobError(jobId, display);
+    } finally {
+      safeUnlink(destPath);
     }
-  } finally {
-    safeUnlink(destPath);
-  }
+  })();
 });
 
 app.listen(PORT, () => console.log(`TranscribeForge läuft auf http://localhost:${PORT}`));

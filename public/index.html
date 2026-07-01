@@ -447,6 +447,25 @@
         </div>
         <div class="url-detected" id="urlDetected"></div>
         <div class="url-hint">YouTube und Vimeo werden unterstützt. Das Video wird serverseitig heruntergeladen.</div>
+        <div style="margin-top:10px; padding:10px 12px; background:rgba(247,127,0,0.08); border:1px solid rgba(247,127,0,0.3); border-radius:6px; font-size:11.5px; color:var(--text-secondary); line-height:1.55;">
+          <strong style="color:#f77f00;">⚠️ Hinweis YouTube:</strong> YouTube blockiert Downloads von dieser Server-IP (Datacenter-Filter) — daher liefert YouTube nur Storyboards statt Video-Streams, auch mit Login.
+          <span style="display:block; margin-top:6px;">
+            <strong>Funktioniert zuverlässig:</strong> Vimeo-URLs und direkter Datei-Upload (Tab „Datei").<br>
+            <strong>Für YouTube</strong> empfohlen: lokal den <code style="background:var(--bg-base); padding:1px 5px; border-radius:3px;">transcribeForge</code>-CLI-Skill verwenden (nutzt deine Browser-Cookies direkt von deinem Mac).
+          </span>
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <a href="/transcribeForge-cli-skill.zip" download style="text-decoration:none; display:inline-block; padding:6px 12px; background:linear-gradient(135deg,#d62828,#f77f00); color:white; border-radius:5px; font-size:11px; font-weight:600;">⬇️ CLI-Skill herunterladen (.zip)</a>
+            <details style="flex:1; min-width:240px;">
+              <summary style="cursor:pointer; font-size:11px; color:var(--text-secondary);">Installations-Anleitung</summary>
+              <ol style="font-size:11px; color:var(--text-secondary); line-height:1.7; padding-left:18px; margin:6px 0 0;">
+                <li>ZIP entpacken</li>
+                <li>Ordner <code>transcribeForge</code> nach <code>~/.claude/skills/</code> verschieben</li>
+                <li>Im Terminal: <code>cd ~/.claude/skills/transcribeForge && npm install</code></li>
+                <li>Claude Code aufrufen mit: <em>„nutze den Skill transcribeForge für https://youtube.com/watch?v=..."</em></li>
+              </ol>
+            </details>
+          </div>
+        </div>
 
         <!-- YouTube Connect -->
         <div class="yt-connect-bar" id="ytConnectBar">
@@ -459,8 +478,8 @@
         <div class="yt-oauth-flow" id="ytPanel">
           <!-- Method tabs -->
           <div style="display:flex; border-bottom:1px solid var(--border);">
-            <button class="yt-method-tab active" id="ytTabOauth"  onclick="switchYtTab('oauth')"  style="display:none">📺 Google TV OAuth</button>
-            <button class="yt-method-tab"        id="ytTabCookie" onclick="switchYtTab('cookie')">🍪 Cookie einfügen</button>
+            <button class="yt-method-tab active" id="ytTabCookie" onclick="switchYtTab('cookie')">🍪 Cookie einfügen</button>
+            <button class="yt-method-tab"        id="ytTabOauth"  onclick="switchYtTab('oauth')"  style="display:none">📺 Google TV OAuth</button>
           </div>
 
           <!-- OAuth panel -->
@@ -538,6 +557,92 @@
           </select>
         </div>
       </div>
+    </div>
+
+    <!-- Kosten-Übersicht (aufklappbar) -->
+    <div class="m-card">
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between;">
+          <span class="m-card-label" style="margin-bottom:0;">Kosten-Übersicht (EK / VK)</span>
+          <span style="font-size:12px; color:var(--text-muted);">▾ aufklappen</span>
+        </summary>
+
+        <div style="margin-top:16px; font-size:13px; color:var(--text-secondary); line-height:1.55;">
+          <p style="margin:0 0 12px 0;">
+            <strong style="color:var(--text-primary);">Grundlagen (Stand 2026-07, EK-Preise):</strong><br>
+            Whisper (OpenAI): <strong>$0.006 / min</strong> Audio · Claude Haiku 4.5 Vision:
+            <strong>~$0.002 pro Frame</strong> (≈1500 in + 150 out Tokens) ·
+            Frames/Min je Intervall: 1s → 60 · 3s → 20 · 5s → 12 ·
+            <strong>VK = EK × 2</strong>.
+          </p>
+
+          <div style="font-weight:700; color:var(--text-primary); margin:16px 0 6px 0; font-size:12px; letter-spacing:0.04em; text-transform:uppercase;">
+            Videos — Whisper + Frame-Analyse (Haiku)
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border-strong); color:var(--text-muted);">
+                  <th style="text-align:left; padding:6px 8px;">Länge</th>
+                  <th style="text-align:right; padding:6px 8px;">int=1s (Default)</th>
+                  <th style="text-align:right; padding:6px 8px;">int=3s</th>
+                  <th style="text-align:right; padding:6px 8px;">int=5s</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">30 s</td><td style="text-align:right; padding:6px 8px;">$0.07 / $0.14</td><td style="text-align:right; padding:6px 8px;">$0.02 / $0.04</td><td style="text-align:right; padding:6px 8px;">$0.01 / $0.02</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">1 min</td><td style="text-align:right; padding:6px 8px;">$0.13 / $0.26</td><td style="text-align:right; padding:6px 8px;">$0.05 / $0.10</td><td style="text-align:right; padding:6px 8px;">$0.03 / $0.06</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">3 min</td><td style="text-align:right; padding:6px 8px;">$0.38 / $0.76</td><td style="text-align:right; padding:6px 8px;">$0.14 / $0.28</td><td style="text-align:right; padding:6px 8px;">$0.09 / $0.18</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">5 min</td><td style="text-align:right; padding:6px 8px;">$0.63 / $1.26</td><td style="text-align:right; padding:6px 8px;">$0.23 / $0.46</td><td style="text-align:right; padding:6px 8px;">$0.15 / $0.30</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">10 min</td><td style="text-align:right; padding:6px 8px;">$1.26 / $2.52</td><td style="text-align:right; padding:6px 8px;">$0.46 / $0.92</td><td style="text-align:right; padding:6px 8px;">$0.30 / $0.60</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">15 min</td><td style="text-align:right; padding:6px 8px;">$1.89 / $3.78</td><td style="text-align:right; padding:6px 8px;">$0.69 / $1.38</td><td style="text-align:right; padding:6px 8px;">$0.45 / $0.90</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">30 min</td><td style="text-align:right; padding:6px 8px;">$3.78 / $7.56</td><td style="text-align:right; padding:6px 8px;">$1.38 / $2.76</td><td style="text-align:right; padding:6px 8px;">$0.90 / $1.80</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">45 min</td><td style="text-align:right; padding:6px 8px;">$5.67 / $11.34</td><td style="text-align:right; padding:6px 8px;">$2.07 / $4.14</td><td style="text-align:right; padding:6px 8px;">$1.35 / $2.70</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">60 min</td><td style="text-align:right; padding:6px 8px;">$7.56 / $15.12</td><td style="text-align:right; padding:6px 8px;">$2.76 / $5.52</td><td style="text-align:right; padding:6px 8px;">$1.80 / $3.60</td></tr>
+                <tr><td style="padding:6px 8px;">90 min</td><td style="text-align:right; padding:6px 8px;">$11.34 / $22.68</td><td style="text-align:right; padding:6px 8px;">$4.14 / $8.28</td><td style="text-align:right; padding:6px 8px;">$2.70 / $5.40</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="font-weight:700; color:var(--text-primary); margin:20px 0 6px 0; font-size:12px; letter-spacing:0.04em; text-transform:uppercase;">
+            Audios — Whisper only (kein Vision)
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border-strong); color:var(--text-muted);">
+                  <th style="text-align:left; padding:6px 8px;">Länge</th>
+                  <th style="text-align:right; padding:6px 8px;">EK</th>
+                  <th style="text-align:right; padding:6px 8px;">VK</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">30 s</td><td style="text-align:right; padding:6px 8px;">$0.003</td><td style="text-align:right; padding:6px 8px;">$0.006</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">1 min</td><td style="text-align:right; padding:6px 8px;">$0.006</td><td style="text-align:right; padding:6px 8px;">$0.012</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">3 min</td><td style="text-align:right; padding:6px 8px;">$0.018</td><td style="text-align:right; padding:6px 8px;">$0.036</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">5 min</td><td style="text-align:right; padding:6px 8px;">$0.030</td><td style="text-align:right; padding:6px 8px;">$0.060</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">10 min</td><td style="text-align:right; padding:6px 8px;">$0.060</td><td style="text-align:right; padding:6px 8px;">$0.120</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">15 min</td><td style="text-align:right; padding:6px 8px;">$0.090</td><td style="text-align:right; padding:6px 8px;">$0.180</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">30 min</td><td style="text-align:right; padding:6px 8px;">$0.180</td><td style="text-align:right; padding:6px 8px;">$0.360</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">45 min</td><td style="text-align:right; padding:6px 8px;">$0.270</td><td style="text-align:right; padding:6px 8px;">$0.540</td></tr>
+                <tr style="border-bottom:1px solid var(--border);"><td style="padding:6px 8px;">60 min</td><td style="text-align:right; padding:6px 8px;">$0.360</td><td style="text-align:right; padding:6px 8px;">$0.720</td></tr>
+                <tr><td style="padding:6px 8px;">90 min</td><td style="text-align:right; padding:6px 8px;">$0.540</td><td style="text-align:right; padding:6px 8px;">$1.080</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p style="margin:16px 0 0 0; font-size:12px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:12px;">
+            <strong style="color:var(--text-secondary);">Faustregel:</strong>
+            <code>int=1s</code> ist ~4× teurer als <code>int=3s</code>, ~8× teurer als <code>int=5s</code>.
+            Bei reinen Audios (<em>„Nur Audio"</em> aktiv) ist der Preis vernachlässigbar
+            (&lt; $1 selbst für 90-Min-Meetings).
+            <br><br>
+            <strong style="color:var(--text-secondary);">Multi-Speaker</strong> (mehrere Sprecher-Files + Sonnet-Summary):
+            Whisper × Anzahl Sprecher + ~$0.03–0.10/h Summary.
+            Beispiel 4 Sprecher × 60 min = <strong>$1.52 EK / $3.04 VK</strong>.
+          </p>
+        </div>
+      </details>
     </div>
 
     <!-- Submit -->
@@ -720,13 +825,15 @@
       document.getElementById('step1-label').textContent = 'Audio + Frames extrahieren…';
     }
 
-    function startPolling(jobId) {
+    function startPolling(jobId, onDone, onError) {
       pollInterval = setInterval(async () => {
         try {
           const d = await (await fetch(`/api/progress/${jobId}`)).json();
           if (d.step > 0) updateProgressUI(d);
+          if (d.status === 'done')  { stopPolling(); onDone(d.result); }
+          if (d.status === 'error') { stopPolling(); onError(d.error || 'Unbekannt'); }
         } catch {}
-      }, 400);
+      }, 800);
     }
 
     function stopPolling() {
@@ -759,7 +866,28 @@
 
       const jobId   = Math.random().toString(36).slice(2, 10);
       const noFrames = noFramesCheck.checked;
-      startPolling(jobId);
+
+      const finishOk = (data) => {
+        updateProgressUI({ step: 5, pct: 100 });
+        transcriptBox.textContent = data.transcript;
+        transcriptArea.classList.add('visible');
+        if (data.frameAnalysis) {
+          frameCount.textContent = data.frameCount || 0;
+          frameBox.textContent   = data.frameAnalysis;
+          frameArea.classList.add('visible');
+        }
+        transcribeBtn.disabled = false;
+        transcribeBtn.innerHTML = 'Transkribieren';
+        updateSubmitState();
+      };
+      const finishErr = (msg) => {
+        progressArea.classList.remove('visible');
+        errorBanner.textContent = `Fehler: ${msg}`;
+        errorBanner.classList.add('visible');
+        transcribeBtn.disabled = false;
+        transcribeBtn.innerHTML = 'Transkribieren';
+        updateSubmitState();
+      };
 
       try {
         let response;
@@ -770,11 +898,26 @@
           formData.append('frameInterval',  frameIntervalSelect.value);
           formData.append('frameModel',     frameModelSelect.value);
           formData.append('noFrames',       String(noFrames));
-          response = await fetch('/api/transcribe', {
+          const uploadBase = (location.hostname === 'transcribeforge.hiltmann.cloud')
+            ? `https://${location.hostname}:8443`
+            : '';
+          response = await fetch(`${uploadBase}/api/transcribe`, {
             method: 'POST', headers: { 'x-job-id': jobId }, body: formData,
           });
         } else {
-          response = await fetch('/api/transcribe-url', {
+          updateProgressUI({ step: 1, pct: 8 });
+          const chosenFormat = await chooseFormat(urlInput.value.trim());
+          if (chosenFormat === null) {
+            progressArea.classList.remove('visible');
+            transcribeBtn.disabled = false;
+            transcribeBtn.innerHTML = 'Transkribieren';
+            updateSubmitState();
+            return;
+          }
+          const uploadBaseUrl = (location.hostname === 'transcribeforge.hiltmann.cloud')
+            ? `https://${location.hostname}:8443`
+            : '';
+          response = await fetch(`${uploadBaseUrl}/api/transcribe-url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-job-id': jobId },
             body: JSON.stringify({
@@ -783,33 +926,21 @@
               frameInterval: frameIntervalSelect.value,
               frameModel:    frameModelSelect.value,
               noFrames,
+              format:        chosenFormat || undefined,
             }),
           });
         }
 
-        stopPolling();
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-
-        updateProgressUI({ step: 5, pct: 100 });
-        transcriptBox.textContent = data.transcript;
-        transcriptArea.classList.add('visible');
-
-        if (data.frameAnalysis) {
-          frameCount.textContent = data.frameCount || 0;
-          frameBox.textContent   = data.frameAnalysis;
-          frameArea.classList.add('visible');
+        if (!response.ok) {
+          let msg = `HTTP ${response.status}`;
+          try { const j = await response.json(); if (j.error) msg = j.error; } catch {}
+          throw new Error(msg);
         }
 
+        startPolling(jobId, finishOk, finishErr);
       } catch (err) {
         stopPolling();
-        progressArea.classList.remove('visible');
-        errorBanner.textContent = `Fehler: ${err.message}`;
-        errorBanner.classList.add('visible');
-      } finally {
-        transcribeBtn.disabled = false;
-        transcribeBtn.innerHTML = 'Transkribieren';
-        updateSubmitState();
+        finishErr(err.message);
       }
     });
 
@@ -869,7 +1000,7 @@
       ytDisconnectBtn.style.display = connected ? '' : 'none';
       // Show OAuth tab only if GOOGLE_CLIENT_ID is set
       document.getElementById('ytTabOauth').style.display = oauthConfigured ? '' : 'none';
-      if (!oauthConfigured) switchYtTab('cookie');
+      switchYtTab('cookie');
     }
 
     function openYtPanel() {
@@ -953,6 +1084,128 @@
 
     document.getElementById('tabUrl').addEventListener('click', checkYtStatus);
     if (activeTab === 'url') checkYtStatus();
+
+    // ── Format-Auswahl-Modal ────────────────────────────────────────────────
+    function chooseFormat(url) {
+      return new Promise(async (resolve) => {
+        const modal = document.getElementById('fmtModal');
+        const body  = document.getElementById('fmtBody');
+        const title = document.getElementById('fmtTitle');
+        body.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-secondary);">Verfügbare Formate werden geladen…</div>';
+        title.textContent = 'Format wählen';
+        modal.style.display = 'flex';
+
+        let info;
+        try {
+          const r = await fetch('/api/video/formats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          info = await r.json();
+          if (!r.ok) throw new Error(info.error || 'Fehler beim Holen der Formate');
+        } catch (e) {
+          body.innerHTML = `<div style="padding:18px; color:var(--danger);">Format-Liste konnte nicht geladen werden: ${e.message}</div>`;
+          document.getElementById('fmtConfirm').style.display = 'none';
+          document.getElementById('fmtCancel').textContent = 'Schließen';
+          document.getElementById('fmtCancel').onclick = () => { modal.style.display = 'none'; resolve(null); };
+          return;
+        }
+
+        const fmts = info.formats || [];
+        const videoFmts = fmts.filter(f => f.vcodec && f.vcodec !== 'none' && f.height);
+        const audioFmts = fmts.filter(f => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none');
+
+        const videoByHeight = {};
+        videoFmts.forEach(f => {
+          const h = f.height;
+          if (!videoByHeight[h] || (f.tbr || 0) > (videoByHeight[h].tbr || 0)) videoByHeight[h] = f;
+        });
+        const videoChoices = Object.values(videoByHeight).sort((a, b) => b.height - a.height);
+
+        const fmtSize = b => b ? (b > 1e9 ? `${(b/1e9).toFixed(2)} GB` : `${(b/1e6).toFixed(1)} MB`) : '';
+        const fmtRow = (id, label, sub) => `
+          <label style="display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--border); cursor:pointer;">
+            <input type="radio" name="fmt" value="${id}">
+            <div style="flex:1;">
+              <div style="font-size:13px; color:var(--text-primary);">${label}</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${sub}</div>
+            </div>
+          </label>`;
+
+        let html = '';
+        html += '<div style="padding:12px 14px; border-bottom:1px solid var(--border-strong); background:var(--bg-base);"><div style="font-weight:600; font-size:13px; color:var(--text-primary);">' + (info.title || 'Unbekannter Titel') + '</div>';
+        if (info.duration) html += `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Dauer: ${Math.floor(info.duration/60)}:${String(Math.floor(info.duration%60)).padStart(2,'0')}</div>`;
+        html += '</div>';
+
+        html += fmtRow('', '🎯 Auto / Beste Qualität ≤ 1080p', 'Empfohlen — yt-dlp wählt automatisch');
+
+        if (videoChoices.length) {
+          html += '<div style="padding:8px 12px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); background:var(--bg-base);">Video + Audio</div>';
+          videoChoices.forEach(f => {
+            const audio = audioFmts.find(a => a.acodec && a.acodec !== 'none');
+            const id = audio ? `${f.format_id}+${audio.format_id}` : f.format_id;
+            const label = `${f.height}p${f.fps && f.fps > 30 ? ` ${f.fps}fps` : ''} (${f.ext})`;
+            const sub = [f.vcodec, fmtSize(f.filesize), f.format_note].filter(Boolean).join(' · ');
+            html += fmtRow(id, label, sub);
+          });
+        }
+
+        if (audioFmts.length) {
+          html += '<div style="padding:8px 12px; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); background:var(--bg-base);">Nur Audio (schneller)</div>';
+          audioFmts.sort((a,b) => (b.tbr||0) - (a.tbr||0)).slice(0, 3).forEach(f => {
+            const label = `Audio ${f.ext} ${f.tbr ? Math.round(f.tbr) + ' kbps' : ''}`;
+            const sub = [f.acodec, fmtSize(f.filesize), f.format_note].filter(Boolean).join(' · ');
+            html += fmtRow(f.format_id, label, sub);
+          });
+        }
+
+        if (!videoChoices.length && !audioFmts.length) {
+          const isYouTube = /youtu\.?be/.test(url);
+          html += `<div style="padding:16px; font-size:12.5px; line-height:1.6;">
+            <div style="color:var(--danger); font-weight:600; margin-bottom:8px;">⚠️ Keine Download-Formate verfügbar</div>
+            ${isYouTube ? `
+              <div style="color:var(--text-secondary);">
+                YouTube blockiert Downloads von dieser Server-IP (Datacenter-Filter). Auch mit Login werden nur Storyboards zurückgegeben.<br><br>
+                <strong>Lösung für YouTube-Videos:</strong> Nutze den lokalen CLI-Skill <code style="background:var(--bg-base); padding:1px 5px; border-radius:3px;">transcribeForge</code> auf deinem Mac — der verwendet deine eigene IP und Browser-Cookies und umgeht den Block.
+              </div>
+            ` : `
+              <div style="color:var(--text-secondary);">Für dieses Video stellt die Plattform keine Download-Streams bereit (privat, region-restricted oder nur im Browser abspielbar).</div>
+            `}
+          </div>`;
+        }
+
+        body.innerHTML = html;
+        const firstRadio = body.querySelector('input[name="fmt"]');
+        if (firstRadio) firstRadio.checked = true;
+
+        const cancel  = document.getElementById('fmtCancel');
+        const confirm = document.getElementById('fmtConfirm');
+        cancel.textContent = 'Abbrechen';
+        confirm.style.display = (videoChoices.length || audioFmts.length) ? '' : 'none';
+        cancel.onclick  = () => { modal.style.display = 'none'; resolve(null); };
+        confirm.onclick = () => {
+          const sel = body.querySelector('input[name="fmt"]:checked');
+          modal.style.display = 'none';
+          resolve(sel ? sel.value : '');
+        };
+      });
+    }
   </script>
+
+  <!-- Format-Auswahl-Modal -->
+  <div id="fmtModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-card); border:1px solid var(--border-strong); border-radius:10px; width:480px; max-width:92vw; max-height:80vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div style="padding:14px 16px; border-bottom:1px solid var(--border-strong); display:flex; justify-content:space-between; align-items:center;">
+        <div id="fmtTitle" style="font-weight:600; font-size:14px;">Format wählen</div>
+        <button onclick="document.getElementById('fmtCancel').click()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">×</button>
+      </div>
+      <div id="fmtBody" style="overflow-y:auto; flex:1;"></div>
+      <div style="padding:12px 14px; border-top:1px solid var(--border-strong); display:flex; gap:10px; justify-content:flex-end;">
+        <button id="fmtCancel" style="background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); padding:8px 14px; border-radius:5px; cursor:pointer; font-size:12px;">Abbrechen</button>
+        <button id="fmtConfirm" style="background:linear-gradient(135deg,#d62828,#f77f00); border:none; color:white; padding:8px 16px; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600;">Herunterladen</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
