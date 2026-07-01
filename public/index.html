@@ -645,12 +645,64 @@
       </details>
     </div>
 
+    <!-- Webinar-Modus (aufklappbar) -->
+    <div class="m-card" style="margin-top:16px">
+      <details id="webinarDetails">
+        <summary style="cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between;">
+          <span class="m-card-label" style="margin-bottom:0;">Webinar-Modus (Slides-Site)</span>
+          <span style="font-size:12px; color:var(--text-muted);">▾ aufklappen</span>
+        </summary>
+
+        <div style="margin-top:16px; font-size:13px; color:var(--text-secondary); line-height:1.55;">
+          <p style="margin:0 0 12px 0;">
+            Erzeugt aus dem Video eine eigene Slides-Site
+            (Frame-Extraktion 1 fps → dHash-Clustering → Vision-Klassifikation → Dedup → HTML).
+            Optional wird die Site sofort unter
+            <code>transcribeforge.hiltmann.cloud/webinare/&lt;slug&gt;/</code>
+            veröffentlicht.
+          </p>
+
+          <div class="m-checkbox-row" style="margin-top:12px;">
+            <input type="checkbox" class="m-checkbox" id="webinarCheck" />
+            <label class="m-checkbox-label" for="webinarCheck">Als Webinar analysieren (zusätzlich zum Transkript)</label>
+          </div>
+
+          <div id="webinarFields" style="margin-top:12px; display:none;">
+            <div class="lang-row" style="margin-top:8px">
+              <span class="lang-label">Site-Titel:</span>
+              <input type="text" class="m-select" id="webinarTitleInput" placeholder="z.B. Webinar 2026-07 – KI im Vertrieb" style="flex:1;" />
+            </div>
+            <div class="lang-row" style="margin-top:8px">
+              <span class="lang-label">URL-Slug:</span>
+              <input type="text" class="m-select" id="webinarSlugInput" placeholder="z.B. webinar-2026-07-ki-vertrieb" style="flex:1;" />
+            </div>
+            <p style="margin:6px 0 0 0; font-size:11px; color:var(--text-muted);">
+              Erlaubte Zeichen: a-z, 0-9, - · Groß-/Sonderzeichen werden automatisch bereinigt
+            </p>
+            <div class="m-checkbox-row" style="margin-top:14px;">
+              <input type="checkbox" class="m-checkbox" id="webinarDeployCheck" checked />
+              <label class="m-checkbox-label" for="webinarDeployCheck">Nach Erstellung automatisch auf transcribeforge.hiltmann.cloud/webinare/ deployen</label>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
     <!-- Submit -->
     <button class="m-btn m-btn-primary m-btn-full" id="transcribeBtn" disabled>
       Transkribieren
     </button>
 
     <div class="error-banner" id="errorBanner"></div>
+
+    <!-- Webinar-Site Ergebnis (nur bei Webinar-Modus + Deploy) -->
+    <div class="m-card transcript-area" id="webinarResultArea" style="margin-top:16px">
+      <div class="m-card-label">Webinar-Site</div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <p id="webinarResultInfo" style="margin:0; font-size:13px; color:var(--text-secondary);"></p>
+        <a id="webinarResultLink" href="#" target="_blank" rel="noopener" class="m-btn m-btn-primary" style="text-align:center; text-decoration:none;">🌐 Site öffnen</a>
+      </div>
+    </div>
 
     <!-- Progress -->
     <div class="m-card progress-area" id="progressArea" style="margin-top:16px">
@@ -677,6 +729,31 @@
         <div class="progress-step" id="step4">
           <div class="step-icon" id="step4-icon">4</div>
           <span>Fertig</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
+        </div>
+        <!-- Webinar-only Steps 5-8, per JS eingeblendet -->
+        <div class="progress-step webinar-step" id="step5" hidden>
+          <div class="step-icon" id="step5-icon">5</div>
+          <span>Frames extrahieren (Webinar)…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
+        </div>
+        <div class="progress-step webinar-step" id="step6" hidden>
+          <div class="step-icon" id="step6-icon">6</div>
+          <span>Slides klassifizieren…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
+        </div>
+        <div class="progress-step webinar-step" id="step7" hidden>
+          <div class="step-icon" id="step7-icon">7</div>
+          <span>Site rendern…</span>
+          <div class="step-bar"><div class="step-bar-fill"></div></div>
+          <span class="step-pct">–</span>
+        </div>
+        <div class="progress-step webinar-step" id="step8" hidden>
+          <div class="step-icon" id="step8-icon">8</div>
+          <span>Deployen…</span>
           <div class="step-bar"><div class="step-bar-fill"></div></div>
           <span class="step-pct">–</span>
         </div>
@@ -739,6 +816,13 @@
       selectedFile = file;
       uploadFilename.textContent = `📁 ${file.name}`;
       uploadFilename.style.display = 'inline-flex';
+      // Webinar-Slug + Titel automatisch aus Dateinamen vorschlagen, sofern leer
+      try {
+        const webS = document.getElementById('webinarSlugInput');
+        const webT = document.getElementById('webinarTitleInput');
+        if (webS && !webS.value) webS.value = slugify(file.name);
+        if (webT && !webT.value) webT.value = file.name.replace(/\.[^.]+$/, '');
+      } catch {}
       updateSubmitState();
     }
 
@@ -795,11 +879,51 @@
       frameSettings.classList.toggle('disabled', noFramesCheck.checked);
     });
 
+    // ── Webinar-Modus Wiring ─────────────────────────────────────────────────
+    const webinarDetails    = document.getElementById('webinarDetails');
+    const webinarCheck      = document.getElementById('webinarCheck');
+    const webinarFields     = document.getElementById('webinarFields');
+    const webinarTitleInput = document.getElementById('webinarTitleInput');
+    const webinarSlugInput  = document.getElementById('webinarSlugInput');
+    const webinarDeployCheck= document.getElementById('webinarDeployCheck');
+    const webinarResultArea = document.getElementById('webinarResultArea');
+    const webinarResultInfo = document.getElementById('webinarResultInfo');
+    const webinarResultLink = document.getElementById('webinarResultLink');
+
+    function slugify(raw) {
+      return (raw || '').toString()
+        .toLowerCase()
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80);
+    }
+
+    webinarCheck.addEventListener('change', () => {
+      webinarFields.style.display = webinarCheck.checked ? 'block' : 'none';
+      // Beim Aktivieren Vorschlag befüllen, falls Datei da
+      if (webinarCheck.checked && selectedFile && !webinarSlugInput.value) {
+        webinarSlugInput.value = slugify(selectedFile.name);
+      }
+      if (webinarCheck.checked && selectedFile && !webinarTitleInput.value) {
+        webinarTitleInput.value = selectedFile.name.replace(/\.[^.]+$/, '');
+      }
+    });
+    // Live-Sanitize
+    webinarSlugInput.addEventListener('input', () => {
+      const v = slugify(webinarSlugInput.value);
+      if (v !== webinarSlugInput.value) webinarSlugInput.value = v;
+    });
+
     // ── Progress ──────────────────────────────────────────────────────────────
     let pollInterval = null;
 
+    // Wenn Webinar-Modus aktiv, gehen wir bis Step 8; sonst nur bis 4.
+    function currentMaxStep() { return webinarCheck.checked ? 8 : 4; }
+
     function updateProgressUI({ step, pct, label }) {
-      for (let n = 1; n <= 4; n++) {
+      const maxN = currentMaxStep();
+      for (let n = 1; n <= maxN; n++) {
         const el    = document.getElementById(`step${n}`);
         const icon  = document.getElementById(`step${n}-icon`);
         const fill  = el.querySelector('.step-bar-fill');
@@ -820,8 +944,14 @@
     }
 
     function resetSteps() {
+      const showWebinar = webinarCheck.checked;
+      [5,6,7,8].forEach(n => {
+        const el = document.getElementById(`step${n}`);
+        if (el) el.hidden = !showWebinar;
+      });
       updateProgressUI({ step: 0, pct: 0 });
-      [1,2,3,4].forEach(n => document.getElementById(`step${n}-icon`).textContent = String(n));
+      const range = showWebinar ? [1,2,3,4,5,6,7,8] : [1,2,3,4];
+      range.forEach(n => document.getElementById(`step${n}-icon`).textContent = String(n));
       document.getElementById('step1-label').textContent = 'Audio + Frames extrahieren…';
     }
 
@@ -858,6 +988,7 @@
       transcriptBox.textContent = '';
       frameArea.classList.remove('visible');
       frameBox.textContent = '';
+      webinarResultArea.classList.remove('visible');
       resetSteps();
       progressArea.classList.add('visible');
       updateProgressUI({ step: 1, pct: 5 });
@@ -866,15 +997,45 @@
 
       const jobId   = Math.random().toString(36).slice(2, 10);
       const noFrames = noFramesCheck.checked;
+      const webinarOn = webinarCheck.checked;
+      const webinarTitle = webinarTitleInput.value.trim();
+      const webinarSlug  = slugify(webinarSlugInput.value);
+      const webinarDeploy = webinarDeployCheck.checked;
+
+      if (webinarOn && !webinarSlug) {
+        errorBanner.textContent = 'Bitte einen URL-Slug für den Webinar-Modus angeben.';
+        errorBanner.classList.add('visible');
+        progressArea.classList.remove('visible');
+        transcribeBtn.disabled = false;
+        transcribeBtn.innerHTML = 'Transkribieren';
+        updateSubmitState();
+        return;
+      }
 
       const finishOk = (data) => {
-        updateProgressUI({ step: 5, pct: 100 });
+        const maxN = currentMaxStep();
+        updateProgressUI({ step: maxN + 1, pct: 100 });
         transcriptBox.textContent = data.transcript;
         transcriptArea.classList.add('visible');
         if (data.frameAnalysis) {
           frameCount.textContent = data.frameCount || 0;
           frameBox.textContent   = data.frameAnalysis;
           frameArea.classList.add('visible');
+        }
+        if (data.webinar && data.webinar.publicUrl) {
+          webinarResultInfo.textContent =
+            `Slides-Site erzeugt (Slug: ${data.webinar.slug}). Sie ist jetzt live.`;
+          webinarResultLink.href = data.webinar.publicUrl;
+          webinarResultLink.textContent = '🌐 ' + data.webinar.publicUrl;
+          webinarResultArea.classList.add('visible');
+        } else if (data.webinar && data.webinar.slug) {
+          webinarResultInfo.textContent =
+            `Slides-Site lokal erzeugt in webinare/${data.webinar.slug}/ (kein Deploy).`;
+          webinarResultLink.style.display = 'none';
+          webinarResultArea.classList.add('visible');
+        } else if (data.webinar && data.webinar.error) {
+          errorBanner.textContent = 'Webinar-Fehler: ' + data.webinar.error;
+          errorBanner.classList.add('visible');
         }
         transcribeBtn.disabled = false;
         transcribeBtn.innerHTML = 'Transkribieren';
@@ -898,6 +1059,12 @@
           formData.append('frameInterval',  frameIntervalSelect.value);
           formData.append('frameModel',     frameModelSelect.value);
           formData.append('noFrames',       String(noFrames));
+          if (webinarOn) {
+            formData.append('webinar',        '1');
+            formData.append('webinar_title',  webinarTitle);
+            formData.append('webinar_slug',   webinarSlug);
+            formData.append('webinar_deploy', webinarDeploy ? '1' : '0');
+          }
           const uploadBase = (location.hostname === 'transcribeforge.hiltmann.cloud')
             ? `https://${location.hostname}:8443`
             : '';
@@ -927,6 +1094,12 @@
               frameModel:    frameModelSelect.value,
               noFrames,
               format:        chosenFormat || undefined,
+              ...(webinarOn ? {
+                webinar:        '1',
+                webinar_title:  webinarTitle,
+                webinar_slug:   webinarSlug,
+                webinar_deploy: webinarDeploy ? '1' : '0',
+              } : {}),
             }),
           });
         }

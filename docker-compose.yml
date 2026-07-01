@@ -19,7 +19,7 @@ services:
       - ./youtube-cookies.txt:/app/youtube-cookies.txt
       - ./yt-tokens.json:/app/yt-tokens.json
       - ./yt-dlp-cache:/root/.cache/yt-dlp
-      - ./webinare:/app/webinare:ro
+      - ./webinare:/app/webinare
     networks:
       - n8n_default
     labels:

@@ -106,7 +106,20 @@ function parseOpts(body) {
     speakers:    speakersRaw ? speakersRaw.split(',').map(s => s.trim()).filter(Boolean) : [],
     minSpeakers: body.minSpeakers ? parseInt(body.minSpeakers) : null,
     maxSpeakers: body.maxSpeakers ? parseInt(body.maxSpeakers) : null,
+    webinar:       body.webinar === true || body.webinar === '1' || body.webinar === 'true',
+    webinarTitle:  (body.webinar_title || '').toString().trim(),
+    webinarSlug:   sanitizeSlug(body.webinar_slug || ''),
+    webinarDeploy: body.webinar_deploy === true || body.webinar_deploy === '1' || body.webinar_deploy === 'true',
   };
+}
+
+function sanitizeSlug(raw) {
+  return (raw || '').toString()
+    .toLowerCase()
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
 }
 
 // ── pyannote-Diarisation (optional, additiv) ───────────────────────────────
@@ -543,8 +556,27 @@ async function transcribePipeline(videoPath, opts, jobId) {
     }
     setP(jobId, 3, 100, noFrames ? 'Übersprungen' : 'Bildanalyse fertig');
 
-    // Step 4: Done
-    setP(jobId, 4, 100, 'Fertig');
+    // Step 4: Webinar-Modus (optional) — Slides-Site rendern & deployen
+    let webinar = null;
+    if (opts.webinar) {
+      try {
+        webinar = await runWebinarPipeline({
+          videoPath,
+          jobId,
+          slug: opts.webinarSlug,
+          title: opts.webinarTitle,
+          transcript: transcription.text,
+          frameAnalysis,
+          deploy: opts.webinarDeploy,
+        });
+      } catch (e) {
+        console.error('Webinar-Pipeline-Fehler:', e);
+        webinar = { error: e.message };
+      }
+    }
+
+    // Step 4/8: Done
+    setP(jobId, opts.webinar ? 8 : 4, 100, 'Fertig');
 
     return {
       transcript: transcription.text,
@@ -554,6 +586,7 @@ async function transcribePipeline(videoPath, opts, jobId) {
       // bestehende Clients ignorieren die Felder einfach.
       speakerTranscript,
       diarization: diarMeta,
+      webinar,
     };
 
   } finally {
@@ -561,6 +594,105 @@ async function transcribePipeline(videoPath, opts, jobId) {
     if (audioFile && audioFile !== wavFile) safeUnlink(audioFile);
     safeRmDir(framesDir);
   }
+}
+
+// ── Webinar-Slides-Pipeline (extract → cluster → analyze → build → render) ─
+const WEBINAR_SCRIPT   = join(__dirname, 'skill', 'scripts', 'build-webinar-slides.js');
+const WEBINAR_TEMPLATE = join(__dirname, 'skill', 'scripts', 'webinar-template');
+const WEBINAR_OUT_BASE = join(__dirname, 'webinare');
+
+function buildWebinarTranscriptMd({ title, transcript, frameAnalysis }) {
+  const lines = [];
+  lines.push(`# ${title}`);
+  lines.push('');
+  if (frameAnalysis && frameAnalysis.trim()) {
+    lines.push('## Visual Timeline');
+    lines.push('');
+    // frameAnalysis-Zeilen: "MM:SS – Beschreibung"
+    frameAnalysis.split('\n').forEach(raw => {
+      const line = raw.trim();
+      const m = line.match(/^(\d{1,2}):(\d{2})\s*[–-]\s*(.+)$/);
+      if (m) lines.push(`**${m[1]}:${m[2]}** – ${m[3]}`);
+    });
+    lines.push('');
+  }
+  if (transcript && transcript.trim()) {
+    lines.push('## Volltranskript');
+    lines.push('');
+    lines.push(transcript.trim());
+  }
+  return lines.join('\n');
+}
+
+async function runWebinarPipeline({ videoPath, jobId, slug, title, transcript, frameAnalysis, deploy }) {
+  if (!slug) throw new Error('Kein Slug angegeben.');
+  const outDir = join(WEBINAR_OUT_BASE, slug);
+
+  // transcript-md temporär schreiben
+  const tmpMd = join(UPLOAD_DIR, `webinar-${slug}-${Date.now()}.md`);
+  writeFileSync(tmpMd, buildWebinarTranscriptMd({
+    title: title || slug,
+    transcript,
+    frameAnalysis,
+  }), 'utf8');
+
+  setP(jobId, 5, 5, 'Webinar: Frames extrahieren…');
+  await new Promise((resolve, reject) => {
+    const args = [
+      WEBINAR_SCRIPT,
+      '--video',      videoPath,
+      '--out',        outDir,
+      '--title',      title || slug,
+      '--transcript', tmpMd,
+      '--template',   WEBINAR_TEMPLATE,
+    ];
+    const child = spawn('node', args, {
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    let stdoutBuf = '';
+    child.stdout.on('data', chunk => {
+      stdoutBuf += chunk.toString();
+      let idx;
+      while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, idx).trim();
+        stdoutBuf = stdoutBuf.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line);
+          if (msg.phase === 'frames')  setP(jobId, 5, msg.pct, msg.label || 'Frames…');
+          if (msg.phase === 'cluster') setP(jobId, 6, msg.pct, msg.label || 'Cluster…');
+          if (msg.phase === 'analyze') setP(jobId, 6, Math.min(100, 50 + msg.pct / 2), msg.label || 'Vision…');
+          if (msg.phase === 'build')   setP(jobId, 7, msg.pct, msg.label || 'Bauen…');
+          if (msg.phase === 'render')  setP(jobId, 7, Math.min(100, 50 + msg.pct / 2), msg.label || 'Rendern…');
+          if (msg.phase === 'done')    child._webinarResult = msg.result;
+          if (msg.phase === 'error')   child._webinarError = msg.message;
+        } catch {
+          // Nicht-JSON auf stdout → ignorieren
+        }
+      }
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (child._webinarError) return reject(new Error(child._webinarError));
+      if (code !== 0)          return reject(new Error(`build-webinar-slides.js exit ${code}`));
+      resolve(child._webinarResult || {});
+    });
+  }).finally(() => safeUnlink(tmpMd));
+
+  // Da das Volume webinare/ von aussen gemountet ist (rw), ist die Site sofort
+  // unter transcribeforge.hiltmann.cloud/webinare/<slug>/ verfügbar.
+  const publicUrl = deploy
+    ? `https://transcribeforge.hiltmann.cloud/webinare/${slug}/`
+    : null;
+
+  setP(jobId, 8, 100, 'Site deployed');
+  return {
+    slug,
+    outDir,
+    publicUrl,
+    deployed: !!deploy,
+  };
 }
 
 // ── POST /api/transcribe  (Datei-Upload, async) ────────────────────────────
