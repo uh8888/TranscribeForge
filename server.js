@@ -46,6 +46,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
+app.use('/webinare', express.static(join(__dirname, 'webinare'), { maxAge: '1d' }));
 
 // ── Multer (file uploads) ──────────────────────────────────────────────────
 const storage = multer.diskStorage({

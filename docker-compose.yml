@@ -1,14 +1,25 @@
 services:
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: transcribeforge-pot-provider
+    restart: always
+    init: true
+    networks:
+      - n8n_default
+
   app:
     build: .
     container_name: transcribeforge.hiltmann.cloud
     restart: always
     env_file:
       - .env
+    depends_on:
+      - bgutil-provider
     volumes:
       - ./youtube-cookies.txt:/app/youtube-cookies.txt
       - ./yt-tokens.json:/app/yt-tokens.json
       - ./yt-dlp-cache:/root/.cache/yt-dlp
+      - ./webinare:/app/webinare:ro
     networks:
       - n8n_default
     labels:
@@ -18,6 +29,11 @@ services:
       - "traefik.http.routers.transcribeforge.entrypoints=websecure"
       - "traefik.http.routers.transcribeforge.tls=true"
       - "traefik.http.routers.transcribeforge.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.transcribeforge-long.rule=Host(`transcribeforge.hiltmann.cloud`)"
+      - "traefik.http.routers.transcribeforge-long.entrypoints=websecure-long"
+      - "traefik.http.routers.transcribeforge-long.tls=true"
+      - "traefik.http.routers.transcribeforge-long.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.transcribeforge-long.service=transcribeforge"
       - "traefik.http.services.transcribeforge.loadbalancer.server.port=3001"
 
 networks:
