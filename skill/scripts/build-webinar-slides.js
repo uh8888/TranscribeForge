@@ -66,7 +66,7 @@ function log(...args) {
 
 // ── prep dirs ─────────────────────────────────────────────────────────────
 fs.mkdirSync(OUT_DIR, { recursive: true });
-const FRAMES_OUT = path.join(OUT_DIR, 'assets', 'frames_full');
+const FRAMES_OUT = path.join(OUT_DIR, 'assets', 'frames');
 const FONTS_OUT  = path.join(OUT_DIR, 'assets', 'fonts');
 fs.mkdirSync(FRAMES_OUT, { recursive: true });
 fs.mkdirSync(FONTS_OUT,  { recursive: true });
@@ -182,13 +182,15 @@ const SYSTEM = `Du klassifizierst einen einzelnen Frame aus einer deutschen Webi
   "element_count": number,
   "completeness": number,
   "slide_title": string,
-  "slide_summary": string
+  "slide_summary": string,
+  "readable_at_1280": boolean
 }
 
 Wichtige Regeln:
 - is_transition, is_cropped, is_greyed sind DISQUALIFIZIERER — sei streng, im Zweifel true.
 - Zähle bei element_count wirklich die sichtbaren Bullet-Punkte / Grafik-Kacheln. Reine Titel-Folie = 1.
-- Keine Halluzinationen. Wenn du unsicher bist, schreibe knappe Fakten.`;
+- Keine Halluzinationen. Wenn du unsicher bist, schreibe knappe Fakten.
+- Bewerte, ob der wichtigste Text auf dieser Folie bei einer Ausgabegröße von 1280×720 Pixel und JPEG-Qualität 82 noch bequem lesbar ist. readable_at_1280=true wenn nur Headline/große Aufzählungen; readable_at_1280=false wenn kleiner Fließtext, dichte Tabellen, feine Diagrammbeschriftungen oder Screenshots mit Feinstruktur. Im Zweifel bei textlastigen Folien: readable_at_1280=false.`;
 
 async function analyze(item) {
   const imgPath = path.join(FRAMES_FULL, item.file);
@@ -208,6 +210,8 @@ async function analyze(item) {
       const m = raw.match(/\{[\s\S]*\}/);
       if (m) parsed = JSON.parse(m[0]); else throw new Error('parse');
     }
+    // Fallback wenn Vision-Modell readable_at_1280 nicht geliefert hat → als lesbar behandeln (kein HQ nötig)
+    if (typeof parsed.readable_at_1280 !== 'boolean') parsed.readable_at_1280 = true;
     return { ...item, ...parsed, tokens_in: r.usage.input_tokens, tokens_out: r.usage.output_tokens };
   } catch (e) {
     return { ...item, error: e.message };
@@ -314,23 +318,76 @@ emit({ phase: 'build', pct: 100, label: `${slides.length} finale Folien` });
 
 // ── PHASE 5: kopiere Frames (komprimiert) + Fonts + styles → OUT_DIR ─────
 emit({ phase: 'render', pct: 5, label: 'Frames komprimieren + Assets kopieren…' });
-// finalen Frame-Satz: nur die Slides, kompaktes ffmpeg-Recompress auf 1280×720 q:v 5
+
+// Probe native Video-Auflösung → nur wenn lange Kante ≥ 1600 lohnt sich ein HQ-Frame
+let videoLongEdge = 0;
+try {
+  const p = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height', '-of', 'csv=p=0', VIDEO], { encoding: 'utf8' });
+  if (p.status === 0) {
+    const [w, h] = p.stdout.trim().split(',').map(n => parseInt(n, 10));
+    if (w && h) videoLongEdge = Math.max(w, h);
+  }
+} catch {}
+const HQ_ENABLED = videoLongEdge >= 1600;
+log(`Video long edge=${videoLongEdge}, HQ frames enabled=${HQ_ENABLED}`);
+
+// finalen Frame-Satz: nur die Slides, kompaktes ffmpeg-Recompress auf 1280×720 JPEG q82
 const keepFiles = slides.map(s => s.file);
 for (const f of keepFiles) {
   const src = path.join(FRAMES_FULL, f);
   const dst = path.join(FRAMES_OUT, f);
+  // -q:v 4 in ffmpeg mjpeg ≈ JPEG-Q82 (Skala 1..31, 2=beste, 31=schlechteste); Q82 entspricht ~4
   const r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
-    '-i', src, '-vf', 'scale=1280:-2', '-q:v', '5', dst],
+    '-i', src, '-vf', 'scale=1280:-2', '-q:v', '4', dst],
     { stdio: ['ignore', 'ignore', 'inherit'] });
   if (r.status !== 0) log(`compress failed for ${f}`);
 }
+
+// HQ-Frames für alle Slides mit readable_at_1280===false
+let hqCount = 0;
+const HQ_DIR = path.join(OUT_DIR, 'assets', 'frames_hq');
+if (HQ_ENABLED) {
+  fs.mkdirSync(HQ_DIR, { recursive: true });
+  for (const s of slides) {
+    if (s.readable_at_1280 !== false) continue;
+    const src = path.join(FRAMES_FULL, s.file);
+    const dst = path.join(HQ_DIR, s.file);
+    // native Auflösung, max 2560 lange Kante, JPEG-Q92 → mjpeg -q:v 2
+    const r = spawnSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error',
+      '-i', src,
+      '-vf', "scale='if(gt(iw,ih),min(iw,2560),-2)':'if(gt(iw,ih),-2,min(ih,2560))'",
+      '-q:v', '2', dst],
+      { stdio: ['ignore', 'ignore', 'inherit'] });
+    if (r.status === 0) {
+      s.hq_available = true;
+      hqCount++;
+    } else {
+      s.hq_available = false;
+      log(`HQ extract failed for ${s.file}`);
+    }
+  }
+} else {
+  for (const s of slides) s.hq_available = false;
+}
+log(`HQ frames generated: ${hqCount}/${slides.length}`);
+
 // styles.css
 fs.copyFileSync(path.join(TEMPLATE, 'styles.css'), path.join(OUT_DIR, 'styles.css'));
 // fonts
 for (const fn of fs.readdirSync(path.join(TEMPLATE, 'fonts'))) {
   fs.copyFileSync(path.join(TEMPLATE, 'fonts', fn), path.join(FONTS_OUT, fn));
 }
-emit({ phase: 'render', pct: 60, label: 'HTML rendern…' });
+// vendor (Panzoom, lokal — DSGVO-konform, keine CDN)
+const VENDOR_OUT = path.join(OUT_DIR, 'assets', 'vendor');
+const VENDOR_SRC = path.join(TEMPLATE, 'vendor');
+if (fs.existsSync(VENDOR_SRC)) {
+  fs.mkdirSync(VENDOR_OUT, { recursive: true });
+  for (const fn of fs.readdirSync(VENDOR_SRC)) {
+    fs.copyFileSync(path.join(VENDOR_SRC, fn), path.join(VENDOR_OUT, fn));
+  }
+}
+emit({ phase: 'render', pct: 60, label: `HTML rendern (${hqCount} HQ-Frames)…` });
 
 // ── PHASE 5b: render index.html ──────────────────────────────────────────
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -413,11 +470,12 @@ function renderTimeline(block) {
 const timelineHtml = renderTimeline(visualTimeline);
 
 const slideCards = slides.map((s, idx) => `
-  <article class="slide-card" data-idx="${idx}" tabindex="0" role="button" aria-label="Slide ${s.mmss} ${esc(s.slide_title)} öffnen">
+  <article class="slide-card${s.hq_available ? ' has-hq' : ''}" data-idx="${idx}" tabindex="0" role="button" aria-label="Slide ${s.mmss} ${esc(s.slide_title)} öffnen">
     <div class="slide-img-wrap">
-      <img src="assets/frames_full/${esc(s.file)}" alt="${esc(s.slide_title)}" loading="lazy" />
+      <img src="assets/frames/${esc(s.file)}" alt="${esc(s.slide_title)}" loading="lazy" />
       <span class="ts-badge">${esc(s.mmss)}</span>
       ${s.duplicate_count > 1 ? `<span class="dup-badge" title="Aus ${s.duplicate_count} ähnlichen Frames zusammengefasst">×${s.duplicate_count}</span>` : ''}
+      ${s.hq_available ? `<span class="hq-badge" title="Hochaufgelöste Version zum Zoomen verfügbar">HD zoom</span>` : ''}
     </div>
     <div class="slide-body">
       <h3>${esc(s.slide_title)}</h3>
@@ -440,7 +498,8 @@ const slidesForJs = slides.map(s => ({
   file: s.file, mmss: s.mmss,
   title: s.slide_title, summary: s.slide_summary,
   timeline_note: s.timeline_match ? s.timeline_match.text : null,
-  duplicate_count: s.duplicate_count
+  duplicate_count: s.duplicate_count,
+  hq_available: !!s.hq_available
 }));
 
 const generated = new Date().toISOString().slice(0, 10);
@@ -560,30 +619,57 @@ const html = `<!DOCTYPE html>
   <button class="lb-prev" aria-label="Vorherige Slide">‹</button>
   <button class="lb-next" aria-label="Nächste Slide">›</button>
   <div class="lb-content">
-    <img class="lb-img" alt="" />
+    <div class="lb-img-wrap">
+      <div class="lb-pan" id="lbPan">
+        <img class="lb-img" alt="" />
+      </div>
+      <div class="lb-zoom-controls" hidden>
+        <button class="lb-zoom-out" aria-label="Herauszoomen" type="button">−</button>
+        <button class="lb-zoom-reset" aria-label="Zoom zurücksetzen" type="button">100%</button>
+        <button class="lb-zoom-in" aria-label="Hineinzoomen" type="button">+</button>
+      </div>
+    </div>
     <div class="lb-meta">
       <span class="lb-ts"></span>
       <h3 class="lb-title"></h3>
       <p class="lb-summary"></p>
       <p class="lb-note"></p>
+      <p class="lb-hq-hint muted" hidden>HD-Zoom: Mausrad, Doppelklick oder Buttons.</p>
     </div>
   </div>
 </div>
 
+<script src="assets/vendor/panzoom.min.js"></script>
 <script>
 const SLIDES = ${JSON.stringify(slidesForJs)};
 const lb = document.getElementById('lightbox');
+const lbPan = document.getElementById('lbPan');
 const lbImg = lb.querySelector('.lb-img');
 const lbTs = lb.querySelector('.lb-ts');
 const lbTitle = lb.querySelector('.lb-title');
 const lbSummary = lb.querySelector('.lb-summary');
 const lbNote = lb.querySelector('.lb-note');
+const lbHqHint = lb.querySelector('.lb-hq-hint');
+const lbZoomControls = lb.querySelector('.lb-zoom-controls');
 let currentIdx = 0;
+let panzoomInstance = null;
+
+function destroyPanzoom() {
+  if (panzoomInstance) {
+    try { panzoomInstance.destroy(); } catch (_) {}
+    panzoomInstance = null;
+  }
+  lbPan.classList.remove('is-zoomable');
+  lbImg.style.transform = '';
+}
+
 function openLightbox(idx) {
   currentIdx = idx;
   const s = SLIDES[idx];
   if (!s) return;
-  lbImg.src = 'assets/frames_full/' + s.file;
+  destroyPanzoom();
+  const useHq = !!s.hq_available;
+  lbImg.src = useHq ? ('assets/frames_hq/' + s.file) : ('assets/frames/' + s.file);
   lbImg.alt = s.title || '';
   lbTs.textContent = s.mmss + (s.duplicate_count > 1 ? '  ·  aus ' + s.duplicate_count + ' Frames zusammengefasst' : '');
   lbTitle.textContent = s.title || '';
@@ -597,8 +683,35 @@ function openLightbox(idx) {
   }
   lb.hidden = false;
   document.body.style.overflow = 'hidden';
+  if (useHq && typeof Panzoom === 'function') {
+    lbPan.classList.add('is-zoomable');
+    lbZoomControls.hidden = false;
+    lbHqHint.hidden = false;
+    // Panzoom nach Image-Load initialisieren (verhindert Offset-Bugs)
+    const initPz = () => {
+      panzoomInstance = Panzoom(lbImg, {
+        maxScale: 6,
+        minScale: 1,
+        contain: 'outside',
+        cursor: 'zoom-in',
+        canvas: true
+      });
+      lbPan.addEventListener('wheel', panzoomInstance.zoomWithWheel, { passive: false });
+    };
+    if (lbImg.complete) initPz();
+    else lbImg.addEventListener('load', initPz, { once: true });
+  } else {
+    lbZoomControls.hidden = true;
+    lbHqHint.hidden = true;
+  }
 }
-function closeLightbox() { lb.hidden = true; lbImg.src = ''; document.body.style.overflow = ''; }
+
+function closeLightbox() {
+  destroyPanzoom();
+  lb.hidden = true;
+  lbImg.src = '';
+  document.body.style.overflow = '';
+}
 function nav(delta) { openLightbox((currentIdx + delta + SLIDES.length) % SLIDES.length); }
 document.querySelectorAll('.slide-card').forEach(el => {
   el.addEventListener('click', () => openLightbox(parseInt(el.dataset.idx, 10)));
@@ -610,6 +723,9 @@ lb.querySelector('.lb-close').addEventListener('click', closeLightbox);
 lb.querySelector('.lb-prev').addEventListener('click', () => nav(-1));
 lb.querySelector('.lb-next').addEventListener('click', () => nav(1));
 lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+lb.querySelector('.lb-zoom-in').addEventListener('click', () => panzoomInstance && panzoomInstance.zoomIn());
+lb.querySelector('.lb-zoom-out').addEventListener('click', () => panzoomInstance && panzoomInstance.zoomOut());
+lb.querySelector('.lb-zoom-reset').addEventListener('click', () => panzoomInstance && panzoomInstance.reset());
 document.addEventListener('keydown', e => {
   if (lb.hidden) return;
   if (e.key === 'Escape') closeLightbox();

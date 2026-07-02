@@ -184,3 +184,17 @@ node ~/.claude/skills/transcribeForge/scripts/transcribe-multi.js \
 - Port 3001 belegt → `lsof -ti:3001 | xargs kill` und erneut versuchen
 - `OPENAI_API_KEY` fehlt → `.env` in `/Users/uhi/Projects/TranscribeForge/` prüfen
 - Datei im iCloud (`.icloud` Suffix) → erst mit `brctl download <pfad>` herunterladen
+
+---
+
+## Changelog
+
+- **v1.2.0** — Selective HQ Frames + Panzoom Lightbox
+  - Vision-Prompt erweitert um `readable_at_1280` (bewertet Text-Lesbarkeit bei 1280×720/Q82)
+  - Für Slides mit `readable_at_1280=false` wird zusätzlich ein hochaufgelöstes Frame nach `assets/frames_hq/` extrahiert (bis 2560px lange Kante, JPEG-Q92). Nur wenn Videoauflösung ≥ 1600px lange Kante — sonst redundant.
+  - Frontend-Lightbox integriert Panzoom.js (lokal in `assets/vendor/panzoom.min.js`, DSGVO-konform, keine CDN)
+  - Slide-Cards mit HQ zeigen "HD zoom"-Badge und `cursor: zoom-in`
+  - Zoom-Controls (−/100%/+), Mausrad-Zoom, Doppelklick-Zoom, Pan per Drag
+  - Ordnerstruktur: `assets/frames/` (1280×720 Q82) und `assets/frames_hq/` (native bis 2560 Q92)
+- **v1.1.0** — Webinar-Modus (Slides-Site aus Video)
+- **v1.0.0** — Basis-Transkription + Multi-Speaker-Modus
