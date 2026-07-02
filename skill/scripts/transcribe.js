@@ -9,6 +9,10 @@
  * Aufruf (YouTube / Vimeo):
  *   node transcribe.js --url "https://youtube.com/watch?v=..." [--lang de] [--no-frames]
  *
+ * Webinar-Modus (Slides-Website aus Video generieren + auf VPS deployen):
+ *   node transcribe.js --video "/pfad/vortrag.mp4" --lang de --interval 1 \
+ *     --webinar --title "Mein Webinar" --slug "mein-webinar"
+ *
  * Flags:
  *   --video <pfad>    Lokale Video-/Audiodatei (Pflicht wenn kein --url).
  *   --url <url>       YouTube- oder Vimeo-URL; wird via yt-dlp heruntergeladen.
@@ -22,6 +26,13 @@
  *                     Reihenfolge des ersten Auftretens (z.B. "Uwe,Bastian").
  *   --min-speakers N  Pyannote-Hyperparameter (optional).
  *   --max-speakers N  Pyannote-Hyperparameter (optional).
+ *   --webinar         Aktiviert Webinar-Site-Modus (Backend-Pipeline). Upload
+ *                     zum Server, dort läuft Frame-Cluster → Vision → Slides-Site.
+ *   --title "<str>"   Site-Titel für Webinar (Pflicht wenn --webinar; sonst
+ *                     interaktive Rückfrage im TTY-Modus).
+ *   --slug "<str>"    URL-Slug (a-z0-9-). Sanitize erfolgt clientseitig.
+ *   --no-deploy       Site NICHT unter /webinare/<slug>/ veröffentlichen
+ *                     (Default: deployen).
  *
  * Voraussetzung für --url: yt-dlp muss installiert sein (brew install yt-dlp).
  */
@@ -32,6 +43,7 @@ import { resolve, basename, dirname, join } from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { tmpdir } from 'os';
+import { createInterface } from 'readline';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -74,8 +86,39 @@ const diarMaxSpeakers = getArg('--max-speakers', null);
 const DIARIZE_SCRIPT  = '/Users/uhi/Projects/TranscribeForge/python/diarize.py';
 const DIARIZE_VENV    = '/Users/uhi/Projects/TranscribeForge/python/.venv/bin/python3';
 
+// ── Webinar-Modus ────────────────────────────────────────────────────────────
+// Aktiviert eine Backend-Pipeline (Server-seitig): Video-Upload → Whisper +
+// Frames + Webinar-Slides-Site (Cluster → Vision → Render) → Deploy unter
+// /webinare/<slug>/. Alle vier neuen Flags werden als Multipart-Felder an
+// POST https://transcribeforge.hiltmann.cloud/api/transcribe gesendet.
+const wantWebinar     = args.includes('--webinar');
+let   webinarTitle    = getArg('--title', '');
+let   webinarSlug     = getArg('--slug', '');
+const webinarNoDeploy = args.includes('--no-deploy');
+const WEBINAR_API     = process.env.TF_API_URL
+  || 'https://transcribeforge.hiltmann.cloud/api/transcribe';
+const WEBINAR_PROGRESS_BASE = process.env.TF_API_PROGRESS_BASE
+  || 'https://transcribeforge.hiltmann.cloud/api/progress';
+
+// Muss identisch zu server.js::sanitizeSlug bleiben.
+function sanitizeSlug(raw) {
+  return (raw || '').toString()
+    .toLowerCase()
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 if (!videoArg && !urlArg) {
   console.error('Fehler: --video <pfad> oder --url <youtube/vimeo-url> ist erforderlich.');
+  process.exit(1);
+}
+
+// Webinar-Modus + URL-Download: aktuell nicht unterstützt (Backend braucht
+// direkte Datei). Klarer Fehler statt stiller Fehlschlag.
+if (wantWebinar && urlArg) {
+  console.error('Fehler: --webinar + --url ist aktuell nicht unterstützt. Video lokal herunterladen und mit --video übergeben.');
   process.exit(1);
 }
 
@@ -571,8 +614,201 @@ REGELN:
   return (msg.content.find(b => b.type === 'text')?.text || '').trim();
 }
 
+// ── Webinar-Modus: interaktive Rückfrage + Backend-Upload ─────────────────────
+// TTY-Erkennung: Skill-Aufruf über Claude Code hat kein interaktives stdin.
+// In dem Fall MUSS Claude die fehlenden Args (Title/Slug) selbst nachfragen,
+// bevor der Script-Call rausgeht. Wir brechen mit klarer Meldung ab.
+function isInteractive() {
+  return Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
+}
+
+function ask(question, def = '') {
+  return new Promise(res => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`${question}${def ? ` [${def}]` : ''}: `, ans => {
+      rl.close();
+      res((ans || '').trim() || def);
+    });
+  });
+}
+
+async function resolveWebinarArgs(videoPath) {
+  const baseName = basename(videoPath).replace(/\.[^.]+$/, '');
+  const suggestedSlug  = sanitizeSlug(baseName);
+  const suggestedTitle = baseName.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const missingTitle = !webinarTitle;
+  const missingSlug  = !webinarSlug;
+
+  if (!missingTitle && !missingSlug) {
+    webinarSlug = sanitizeSlug(webinarSlug);
+    if (!webinarSlug) {
+      console.error('Fehler: --slug ergibt nach Sanitize einen leeren String. Bitte a-z0-9- verwenden.');
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (!isInteractive()) {
+    // Skill-/Automation-Kontext: keine Prompts. Claude soll die Frage stellen.
+    const missing = [
+      missingTitle ? '--title "<Site-Titel>"' : null,
+      missingSlug  ? `--slug "<url-slug>"  (Vorschlag: "${suggestedSlug}")` : null,
+    ].filter(Boolean).join(', ');
+    console.error(
+      `Fehler: --webinar erfordert ${missing}.\n` +
+      `Vorschlag Title: "${suggestedTitle}"\n` +
+      `Vorschlag Slug:  "${suggestedSlug}"\n` +
+      `Beispiel:\n  --webinar --title "${suggestedTitle}" --slug "${suggestedSlug}"`
+    );
+    process.exit(1);
+  }
+
+  process.stderr.write('\n── Webinar-Modus: fehlende Angaben ──\n');
+  if (missingTitle) webinarTitle = await ask('Site-Titel', suggestedTitle);
+  if (missingSlug)  webinarSlug  = await ask('URL-Slug (a-z0-9-)', suggestedSlug);
+  webinarSlug = sanitizeSlug(webinarSlug);
+  if (!webinarTitle || !webinarSlug) {
+    console.error('Fehler: Titel und Slug dürfen nicht leer sein.');
+    process.exit(1);
+  }
+  process.stderr.write(`→ Title: "${webinarTitle}"\n→ Slug:  "${webinarSlug}"\n\n`);
+}
+
+async function runWebinarBackend(videoPath) {
+  const stats = statSync(videoPath);
+  const sizeMb = (stats.size / 1024 / 1024).toFixed(1);
+  const deploy = !webinarNoDeploy;
+
+  process.stderr.write(
+    `Webinar-Modus (Backend): ${basename(videoPath)} (${sizeMb} MB)\n` +
+    `  Title:  ${webinarTitle}\n` +
+    `  Slug:   ${webinarSlug}\n` +
+    `  Deploy: ${deploy ? 'ja' : 'nein'}\n` +
+    `  API:    ${WEBINAR_API}\n`
+  );
+
+  const jobId = `cli-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+  const form = new FormData();
+  const buf = readFileSync(videoPath);
+  form.append('video', new Blob([buf], { type: 'video/mp4' }), basename(videoPath));
+  form.append('language',      lang);
+  form.append('frameInterval', String(interval));
+  form.append('frameModel',    frameModel);
+  form.append('webinar',       '1');
+  form.append('webinar_title', webinarTitle);
+  form.append('webinar_slug',  webinarSlug);
+  form.append('webinar_deploy', deploy ? '1' : '0');
+
+  process.stderr.write(`Upload läuft (jobId=${jobId})…`);
+  const upT0 = Date.now();
+  const uploadRes = await fetch(WEBINAR_API, {
+    method: 'POST',
+    headers: { 'x-job-id': jobId },
+    body: form,
+  });
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text().catch(() => '');
+    console.error(`\nFehler beim Upload: HTTP ${uploadRes.status} — ${errText.slice(0, 400)}`);
+    process.exit(1);
+  }
+  process.stderr.write(` ✓ (${Math.round((Date.now() - upT0) / 1000)}s)\n`);
+
+  // Progress-Polling. Backend feuert Steps 1–8:
+  //   1 Audio & Frames · 2 Whisper · 3 Frame-Analyse · 4 (skip) ·
+  //   5 Frames Webinar · 6 Cluster+Vision · 7 Build+Render · 8 Fertig
+  const stepLabel = {
+    1: 'Audio & Frames extrahieren',
+    2: 'Whisper Transkription',
+    3: 'Frame-Analyse',
+    4: 'Fertig (kein Webinar)',
+    5: 'Webinar · Frames extrahieren',
+    6: 'Webinar · Cluster + Vision',
+    7: 'Webinar · Build + Render',
+    8: 'Webinar · Deploy',
+  };
+  let lastLine = '';
+  let result = null;
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    let progRes;
+    try {
+      progRes = await fetch(`${WEBINAR_PROGRESS_BASE}/${jobId}`);
+    } catch (e) {
+      process.stderr.write(`\nProgress-Polling-Fehler: ${e.message} — retry…`);
+      continue;
+    }
+    if (!progRes.ok) continue;
+    const p = await progRes.json();
+    if (p.status === 'error') {
+      console.error(`\nBackend-Fehler: ${p.error || 'unbekannt'}`);
+      process.exit(1);
+    }
+    const label = stepLabel[p.step] || p.label || `Step ${p.step}`;
+    const line = `[${p.step || 0}/8] ${label} · ${p.pct || 0}% ${p.label ? '('+p.label+')' : ''}`;
+    if (line !== lastLine) {
+      process.stderr.write(`\r${line.padEnd(90)}`);
+      lastLine = line;
+    }
+    if (p.status === 'done') {
+      process.stderr.write('\n');
+      result = p.result;
+      break;
+    }
+  }
+
+  const w = result?.webinar;
+  if (!w) {
+    console.error('Fehler: Backend hat kein webinar-Result geliefert.');
+    process.exit(1);
+  }
+  if (w.error) {
+    console.error(`Webinar-Pipeline-Fehler: ${w.error}`);
+    process.exit(1);
+  }
+
+  // Ergebnis: Transkript + Webinar-URL
+  console.log('\n══════════════════════════════════════════════════════');
+  console.log('TRANSKRIPT');
+  console.log('══════════════════════════════════════════════════════');
+  console.log(result.transcript || '(leer)');
+
+  if (result.frameAnalysis) {
+    console.log('\n══════════════════════════════════════════════════════');
+    console.log('FRAME-ANALYSE');
+    console.log('══════════════════════════════════════════════════════');
+    console.log(result.frameAnalysis);
+  }
+
+  console.log('\n════════════════════════════════════════');
+  console.log('WEBINAR-SITE');
+  console.log('════════════════════════════════════════');
+  console.log(`URL:    ${w.publicUrl || '(nicht deployed — --no-deploy war gesetzt)'}`);
+  console.log(`Slug:   ${w.slug}`);
+  console.log(`OutDir: ${w.outDir}`);
+  console.log(`Status: ${w.deployed ? 'deployed' : 'built (nicht deployed)'}`);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
+  // Webinar-Modus zweigt komplett auf die Backend-Pipeline ab (Server macht
+  // Whisper + Frames + Slides-Site in einem Rutsch). Lokale Pipeline bleibt
+  // für alle bisherigen Aufrufe unverändert.
+  if (wantWebinar) {
+    if (!videoArg) {
+      console.error('Fehler: --webinar erfordert --video <pfad> (URLs werden nicht unterstützt).');
+      process.exit(1);
+    }
+    const videoPath = resolve(videoArg);
+    if (!existsSync(videoPath)) {
+      console.error(`Fehler: Datei nicht gefunden: ${videoPath}`);
+      process.exit(1);
+    }
+    await resolveWebinarArgs(videoPath);
+    await runWebinarBackend(videoPath);
+    return;
+  }
+
   const base        = join(tmpdir(), `tf-${Date.now()}`);
   const wavFile     = base + '.wav';
   const framesDir   = base + '_frames';

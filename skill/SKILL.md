@@ -13,6 +13,19 @@ Skill zur vollautomatischen Analyse lokaler Video-Dateien. Nutzt den TranscribeF
 
 Immer wenn der User ein lokales Video analysieren, transkribieren oder beschreiben lassen will — egal ob Screenrecording, Meeting-Aufnahme, Tutorial oder Snagit-Capture.
 
+## PFLICHT: Parameter vor Ausführung im Chat abfragen
+
+Bevor das Skript gestartet wird, **immer zuerst die wichtigsten Parameter beim User bestätigen lassen** (per AskUserQuestion oder als nummerierte Frage YY-MM-DD-NNN). Niemals stillschweigend mit Defaults loslaufen.
+
+Mindestens abzufragen:
+- `--lang` (Sprache Whisper, Default `de`)
+- `--interval` (Frame-Abstand in Sekunden, Default `3` → 0,33 fps; bei statischen Screencasts ggf. 5–10 sinnvoll, bei dichten Demos 1–2)
+- `--model` (nur wenn relevant; Default Haiku reicht meist)
+- Multi-Speaker-Modus: `--no-summary`, `--summary-model`, `--output` ebenfalls bestätigen
+- **Webinar-Modus:** wenn User „Webinar", „Slides-Site", „Vortrag als Website" o. ä. sagt → `--title` und `--slug` per AskUserQuestion abfragen, BEVOR der Skript-Call rausgeht. Aus dem Kontext heraus Vorschläge ableiten (Slug aus Video-Basename lowercased mit `-`).
+
+Erst nach User-Bestätigung das Skript starten.
+
 ## Wie aufrufen
 
 ```bash
@@ -81,9 +94,49 @@ node ~/.claude/skills/transcribeForge/scripts/transcribe.js \
 - EULA für `pyannote/speaker-diarization-3.1` + `pyannote/segmentation-3.0` im HF-Web-UI akzeptiert
 - Python-Venv unter `/Users/uhi/Projects/TranscribeForge/python/.venv/` mit `pyannote.audio`
 
-Setup-Details: siehe README.md (Abschnitt „Single-Stream Diarisation").
+Setup-Details: siehe `/Users/uhi/Projects/TranscribeForge/README.md` (Abschnitt „Single-Stream Diarisation").
 
 **Verhalten bei Fehlern:** Wenn HF_TOKEN, Venv oder pyannote fehlen, wird die Diarisation übersprungen — Whisper-Output bleibt erhalten. Kein Crash.
+
+---
+
+## Webinar-Modus (Slides-Site aus Video)
+
+Erzeugt aus einem Vortragsvideo automatisch eine statische Website mit synchron eingeblendeten Folien-Screenshots + Volltranskript und deployt sie unter `https://transcribeforge.hiltmann.cloud/webinare/<slug>/`. Die Verarbeitung läuft **auf dem Backend-Server** (Volumes + Templates liegen dort).
+
+```bash
+node ~/.claude/skills/transcribeForge/scripts/transcribe.js \
+  --video "/absoluter/pfad/vortrag.mp4" \
+  --lang de --interval 1 \
+  --webinar \
+  --title "Mein Webinar-Titel" \
+  --slug "mein-webinar-slug" \
+  [--no-deploy]
+```
+
+**Flags:**
+- `--webinar` — aktiviert den Modus. Das Video wird an `/api/transcribe` hochgeladen; das Backend läuft Whisper + Frames + Slides-Pipeline (Extract → Cluster → Vision → Dedup → Render → Deploy).
+- `--title "<str>"` — Site-Titel (Pflicht wenn `--webinar`).
+- `--slug "<str>"` — URL-Slug (Pflicht). Zeichen ausserhalb `[a-z0-9-]` werden clientseitig zu `-` und Rand-`-` gestrippt. Max. 80 Zeichen.
+- `--no-deploy` — Site nur bauen, NICHT unter `/webinare/<slug>/` veröffentlichen. Default: deployen.
+
+**PFLICHT-Rückfrage bei Skill-Aufruf über Claude Code:**
+Wenn User „Webinar", „Slides-Site" oder „Vortrag als Website" sagt und `--title`/`--slug` fehlen, MUSS Claude **vor** dem Skript-Call per AskUserQuestion abfragen. Vorschlag ableiten:
+- Slug: `basename.toLowerCase().replace(/\.[^.]+$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')`
+- Title: Basename ohne Extension mit Leerzeichen statt `_-`.
+
+Der Skript-Prozess ohne TTY (Claude-Modus) bricht mit exit(1) und klarer Fehlermeldung ab, wenn `--webinar` gesetzt ist, aber Title/Slug fehlen — Claude soll dann die Frage stellen.
+
+**Ergebnis-Ausgabe:**
+```
+════════════════════════════════════════
+WEBINAR-SITE
+════════════════════════════════════════
+URL:    https://transcribeforge.hiltmann.cloud/webinare/<slug>/
+Status: deployed
+```
+
+**Backend-Endpoint (Debug):** `POST https://transcribeforge.hiltmann.cloud/api/transcribe` mit Multipart-Feldern `webinar=1`, `webinar_title`, `webinar_slug`, `webinar_deploy`. Progress-Polling per `GET /api/progress/:jobId`, Steps 1–8.
 
 ---
 
