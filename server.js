@@ -46,6 +46,304 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
+
+// ── GET /webinare/  — Auto-Index aller deployten Webinar-Sub-Sites ─────────
+// MUSS vor der static-Middleware registriert sein, sonst greift static und
+// liefert 404 für das Verzeichnis-Root.
+const WEBINARE_DIR = join(__dirname, 'webinare');
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function collectWebinare() {
+  if (!existsSync(WEBINARE_DIR)) return [];
+  const entries = [];
+  for (const name of readdirSync(WEBINARE_DIR)) {
+    const slugDir = join(WEBINARE_DIR, name);
+    let st;
+    try { st = statSync(slugDir); } catch { continue; }
+    if (!st.isDirectory()) continue;
+    const dataFile = join(slugDir, 'site_data.json');
+    if (!existsSync(dataFile)) continue;
+    let data;
+    try { data = JSON.parse(readFileSync(dataFile, 'utf8')); } catch { continue; }
+    const meta = data?.meta || {};
+    const slides = Array.isArray(data?.slides) ? data.slides : [];
+    const firstSlide = slides.find(s => s && s.file);
+    entries.push({
+      slug: name,
+      title: meta.title || name,
+      generated: meta.generated || '',
+      slideCount: meta.slide_count ?? slides.length,
+      thumb: firstSlide
+        ? `/webinare/${encodeURIComponent(name)}/assets/frames_full/${encodeURIComponent(firstSlide.file)}`
+        : null,
+      mtime: st.mtimeMs,
+      firstSummary: firstSlide?.slide_summary || '',
+    });
+  }
+  entries.sort((a, b) => {
+    if (a.generated && b.generated && a.generated !== b.generated) {
+      return a.generated < b.generated ? 1 : -1;
+    }
+    return b.mtime - a.mtime;
+  });
+  return entries;
+}
+
+function renderWebinareIndex(entries) {
+  const cards = entries.map(e => {
+    const href = `/webinare/${encodeURIComponent(e.slug)}/`;
+    const thumb = e.thumb
+      ? `<img src="${escapeHtml(e.thumb)}" alt="Vorschau ${escapeHtml(e.title)}" loading="lazy" />`
+      : `<div class="thumb-fallback">Keine Vorschau</div>`;
+    const date = e.generated ? escapeHtml(e.generated) : '—';
+    const slideText = e.slideCount === 1 ? '1 Slide' : `${e.slideCount} Slides`;
+    return `<a class="wcard" href="${escapeHtml(href)}">
+      <div class="wcard-img">${thumb}<span class="wcard-badge">${escapeHtml(slideText)}</span></div>
+      <div class="wcard-body">
+        <h3>${escapeHtml(e.title)}</h3>
+        <p class="wcard-slug">${escapeHtml(e.slug)}</p>
+        <p class="wcard-meta"><span class="wcard-date">${date}</span></p>
+      </div>
+    </a>`;
+  }).join('\n');
+
+  // Fonts: aus einem der Deploy-Ordner nachladen (Inter liegt in jedem <slug>/assets/fonts/).
+  // Falls es (noch) keine Deploys gibt, fällt Inter auf die System-Fallbacks zurück.
+  const fontSlug = entries.length ? encodeURIComponent(entries[0].slug) : null;
+  const fontFace = fontSlug ? `
+    @font-face { font-family: 'Inter'; src: url('/webinare/${fontSlug}/assets/fonts/Inter-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+    @font-face { font-family: 'Inter'; src: url('/webinare/${fontSlug}/assets/fonts/Inter-Medium.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+    @font-face { font-family: 'Inter'; src: url('/webinare/${fontSlug}/assets/fonts/Inter-SemiBold.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+    @font-face { font-family: 'Inter'; src: url('/webinare/${fontSlug}/assets/fonts/Inter-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+  ` : '';
+
+  const emptyBlock = entries.length ? '' : `
+    <div class="empty">
+      <h2>Noch keine Webinare deployed</h2>
+      <p>Sobald du im Webinar-Modus eine Analyse mit <code>--webinar-deploy</code> abschließt,
+      erscheint hier automatisch eine Kachel.</p>
+    </div>`;
+
+  return `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
+<title>TranscribeForge Webinare</title>
+<style>
+${fontFace}
+:root {
+  --bg-base: #0A0A0F;
+  --bg-surface: #111118;
+  --bg-elevated: #1A1A24;
+  --bg-hover: #22222E;
+  --accent-primary: #A3E635;
+  --accent-secondary: #65A30D;
+  --accent-glow: rgba(163, 230, 53, 0.32);
+  --text-primary: #F8F8FF;
+  --text-secondary: #9CA3AF;
+  --text-muted: #4B5563;
+  --border-subtle: #1F2937;
+  --border-default: #374151;
+  --radius: 10px;
+  --radius-xl: 16px;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+body {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(163, 230, 53, 0.14), transparent 60%),
+    radial-gradient(1000px 500px at 85% 0%, rgba(101, 163, 13, 0.10), transparent 60%),
+    var(--bg-base);
+  min-height: 100vh;
+}
+a { color: var(--accent-primary); text-decoration: none; }
+.site-header {
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: saturate(140%) blur(16px);
+  -webkit-backdrop-filter: saturate(140%) blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.header-inner {
+  max-width: 1200px; margin: 0 auto;
+  padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+}
+.header-title h1 { font-size: 1.25rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.header-title .subtitle { margin: 4px 0 0; color: var(--text-secondary); font-size: 0.875rem; }
+.header-count {
+  font-size: 0.875rem; color: var(--text-secondary);
+  padding: 6px 12px; border: 1px solid var(--border-subtle);
+  border-radius: 999px; background: var(--bg-surface);
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
+.section-head { margin: 0 0 32px; }
+.section-eyebrow {
+  display: inline-block; font-size: 0.75rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent-primary); font-weight: 600; margin-bottom: 8px;
+}
+.section-head h2 {
+  font-size: 1.875rem; font-weight: 700; margin: 0;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--text-primary) 0%, #C7C9D8 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.section-lede { margin: 12px 0 0; color: var(--text-secondary); max-width: 780px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+.wcard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  color: inherit;
+}
+.wcard:hover, .wcard:focus-visible {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px -10px var(--accent-glow);
+  outline: none;
+}
+.wcard-img {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.wcard-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 0.875rem;
+}
+.wcard-badge {
+  position: absolute; top: 10px; left: 10px;
+  background: rgba(10, 10, 15, 0.82);
+  border: 1px solid rgba(163, 230, 53, 0.55);
+  color: var(--text-primary);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 0.03em;
+  backdrop-filter: blur(8px);
+}
+.wcard-body {
+  padding: 16px 18px 20px;
+  display: flex; flex-direction: column; gap: 6px; flex: 1;
+}
+.wcard-body h3 {
+  margin: 0; font-size: 1rem; font-weight: 600;
+  color: var(--text-primary); line-height: 1.4;
+}
+.wcard-slug {
+  margin: 0; font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.wcard-meta { margin: 6px 0 0; font-size: 0.75rem; color: var(--text-secondary); }
+.wcard-date {
+  display: inline-block;
+  color: var(--accent-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.empty {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 48px 32px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty h2 { margin: 0 0 8px; color: var(--text-primary); font-size: 1.25rem; }
+.empty code {
+  background: var(--bg-elevated);
+  padding: 2px 6px; border-radius: 4px;
+  font-size: 0.875rem;
+}
+.site-footer {
+  margin-top: 64px; padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-size: 0.875rem;
+  text-align: center;
+}
+@media (max-width: 768px) {
+  .container { padding: 24px 16px 48px; }
+  .header-inner { padding: 12px 16px; }
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="header-inner">
+    <div class="header-title">
+      <h1>TranscribeForge Webinare</h1>
+      <p class="subtitle">Analysierte Webinar-Aufzeichnungen mit Whisper-Transkript und KI-Slide-Erkennung.</p>
+    </div>
+    <div class="header-count">${entries.length} ${entries.length === 1 ? 'Webinar' : 'Webinare'}</div>
+  </div>
+</header>
+<main class="container">
+  <div class="section-head">
+    <span class="section-eyebrow">Übersicht</span>
+    <h2>Deployed Sites</h2>
+    <p class="section-lede">Klick auf eine Kachel öffnet die vollständige Slides-Ansicht der jeweiligen Aufzeichnung — inklusive Timeline, Screenshots und Volltranskript.</p>
+  </div>
+  ${emptyBlock}
+  <div class="grid">
+${cards}
+  </div>
+  <footer class="site-footer">
+    <p>Generiert von TranscribeForge · Alle Assets lokal, keine externen Requests.</p>
+  </footer>
+</main>
+</body>
+</html>`;
+}
+
+// Route: trailing slash oder ohne — beide vor der static-Middleware.
+app.get(['/webinare', '/webinare/'], (req, res) => {
+  if (req.path === '/webinare') return res.redirect(301, '/webinare/');
+  try {
+    const entries = collectWebinare();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(renderWebinareIndex(entries));
+  } catch (e) {
+    console.error('Webinare-Index-Fehler:', e);
+    res.status(500).send('Fehler beim Erstellen der Übersicht.');
+  }
+});
+
 app.use('/webinare', express.static(join(__dirname, 'webinare'), { maxAge: '1d' }));
 
 // ── Multer (file uploads) ──────────────────────────────────────────────────
