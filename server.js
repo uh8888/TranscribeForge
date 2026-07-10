@@ -408,6 +408,7 @@ function parseOpts(body) {
     webinarTitle:  (body.webinar_title || '').toString().trim(),
     webinarSlug:   sanitizeSlug(body.webinar_slug || ''),
     webinarDeploy: body.webinar_deploy === true || body.webinar_deploy === '1' || body.webinar_deploy === 'true',
+    webinarSourceUrl: (body.webinar_source_url || '').toString().trim(),
   };
 }
 
@@ -866,6 +867,7 @@ async function transcribePipeline(videoPath, opts, jobId) {
           transcript: transcription.text,
           frameAnalysis,
           deploy: opts.webinarDeploy,
+          sourceUrl: opts.webinarSourceUrl,
         });
       } catch (e) {
         console.error('Webinar-Pipeline-Fehler:', e);
@@ -899,10 +901,89 @@ const WEBINAR_SCRIPT   = join(__dirname, 'skill', 'scripts', 'build-webinar-slid
 const WEBINAR_TEMPLATE = join(__dirname, 'skill', 'scripts', 'webinar-template');
 const WEBINAR_OUT_BASE = join(__dirname, 'webinare');
 
-function buildWebinarTranscriptMd({ title, transcript, frameAnalysis }) {
+// Sonnet-Summarizer: erzeugt die Rich-Sections (Executive Summary, Action
+// Items, Eckdaten, Besprochene Themen) aus Whisper-Transkript + Frame-Analyse.
+// Wirft laut bei API-Fehlern → transcribePipeline meldet den Fehler an den
+// Client zurück und Frames bleiben (via fatalApiError in build-webinar-slides.js)
+// für Re-Run erhalten.
+async function generateWebinarSummary(transcript, frameAnalysis) {
+  const trimmedTranscript = (transcript || '').trim();
+  if (!trimmedTranscript) {
+    return '';
+  }
+  const framePart = (frameAnalysis || '').trim();
+
+  const userPrompt = [
+    'Du bekommst das Whisper-Transkript und die zeitgestempelten Frame-Beschreibungen eines deutschen Webinars.',
+    'Erzeuge daraus vier Markdown-Sections für die Analyse-Site.',
+    '',
+    'STRIKTE REGELN:',
+    '- Antworte AUSSCHLIESSLICH mit reinem Markdown (kein Codefence, keine Präambel, kein Nachwort).',
+    '- Nutze exakt die H2-Überschriften: "## Executive Summary", "## Action Items", "## Eckdaten", "## Besprochene Themen".',
+    '- Keine Halluzinationen. Wenn eine Section keinen belastbaren Content hat: Section komplett WEGLASSEN.',
+    '- Alles auf Deutsch, keine Anglizismen wenn ein deutsches Wort passt.',
+    '',
+    'FORMAT PRO SECTION:',
+    '',
+    '## Executive Summary',
+    '5–8 Sätze Fließtext: Worum geht es? Wer spricht (Name, Rolle, Firma wenn erwähnt)? Zielgruppe? Kernthese/Angebot? Am Ende ggf. der zentrale Call-to-Action (URL, Termin).',
+    '',
+    '## Action Items',
+    'Gruppiert nach Kategorie mit "### Kategorie-Name". Pro Kategorie eine Checkliste "- [ ] Item". Nur echte Follow-ups/Termine/Nachbereitungen, die AUS DEM TRANSKRIPT hervorgehen. Wenn niemand konkret handeln muss: Section weglassen.',
+    '',
+    '## Eckdaten',
+    'Markdown-Tabelle mit exakt zwei Spalten. Erste Zeile: "| Punkt | Wert |". Zweite Zeile: "| --- | --- |". Danach nur echte Zahlen/Fakten aus dem Transkript (Zeiten, Umsätze, Kundenzahlen, Namen, Referenzen). Keine erfundenen Werte.',
+    '',
+    '## Besprochene Themen',
+    'Verschachtelte Bullet-Liste. Top-Level: "- **Themenblock**". Sub-Level: zwei Leerzeichen Einrückung, "  - Detail".',
+    '',
+    '── TRANSKRIPT ──',
+    trimmedTranscript,
+    '',
+    framePart ? '── FRAME-ANALYSE (zeitgestempelt) ──' : '',
+    framePart,
+  ].filter(l => l !== undefined).join('\n');
+
+  const resp = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const txt = (resp.content.find(b => b.type === 'text')?.text || '').trim();
+  if (!txt) {
+    throw new Error('Sonnet-Summarizer lieferte leeren Text.');
+  }
+
+  // Kosten: Sonnet 4.6 = $3/MTok in, $15/MTok out
+  const tokIn = resp.usage?.input_tokens || 0;
+  const tokOut = resp.usage?.output_tokens || 0;
+  const ek = (tokIn * 3 + tokOut * 15) / 1_000_000;
+  console.log(`[webinar] Summary EK $${ek.toFixed(4)} (in=${tokIn}, out=${tokOut})`);
+
+  return txt;
+}
+
+async function buildWebinarTranscriptMd({ title, transcript, frameAnalysis }) {
   const lines = [];
   lines.push(`# ${title}`);
   lines.push('');
+
+  // Sonnet-Summarizer: Executive Summary + Action Items + Eckdaten + Themen
+  let summaryMd = '';
+  try {
+    summaryMd = await generateWebinarSummary(transcript, frameAnalysis);
+  } catch (e) {
+    // Laut werfen: build-webinar-slides.js hat sein eigenes fatalApiError-Handling
+    // für Vision-Aufrufe; hier bricht der Summarizer den Webinar-Build ab, damit
+    // keine unvollständige Site deployed wird. Frames bleiben erhalten.
+    throw new Error(`Sonnet-Summarizer-Fehler: ${e.message}`);
+  }
+  if (summaryMd) {
+    lines.push(summaryMd);
+    lines.push('');
+  }
+
   if (frameAnalysis && frameAnalysis.trim()) {
     lines.push('## Visual Timeline');
     lines.push('');
@@ -922,17 +1003,21 @@ function buildWebinarTranscriptMd({ title, transcript, frameAnalysis }) {
   return lines.join('\n');
 }
 
-async function runWebinarPipeline({ videoPath, jobId, slug, title, transcript, frameAnalysis, deploy }) {
+async function runWebinarPipeline({ videoPath, jobId, slug, title, transcript, frameAnalysis, deploy, sourceUrl }) {
   if (!slug) throw new Error('Kein Slug angegeben.');
   const outDir = join(WEBINAR_OUT_BASE, slug);
 
-  // transcript-md temporär schreiben
-  const tmpMd = join(UPLOAD_DIR, `webinar-${slug}-${Date.now()}.md`);
-  writeFileSync(tmpMd, buildWebinarTranscriptMd({
+  // Sonnet-Summarizer + Timeline + Volltranskript zusammenbauen
+  setP(jobId, 4, 50, 'Webinar-Zusammenfassung (Sonnet)…');
+  const mdContent = await buildWebinarTranscriptMd({
     title: title || slug,
     transcript,
     frameAnalysis,
-  }), 'utf8');
+  });
+
+  // transcript-md temporär schreiben
+  const tmpMd = join(UPLOAD_DIR, `webinar-${slug}-${Date.now()}.md`);
+  writeFileSync(tmpMd, mdContent, 'utf8');
 
   setP(jobId, 5, 5, 'Webinar: Frames extrahieren…');
   await new Promise((resolve, reject) => {
@@ -944,6 +1029,9 @@ async function runWebinarPipeline({ videoPath, jobId, slug, title, transcript, f
       '--transcript', tmpMd,
       '--template',   WEBINAR_TEMPLATE,
     ];
+    if (sourceUrl) {
+      args.push('--source-url', sourceUrl);
+    }
     const child = spawn('node', args, {
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'inherit'],
@@ -1027,6 +1115,12 @@ app.post('/api/transcribe-url', (req, res) => {
   const tempId   = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
   const destPath = join(UPLOAD_DIR, `url-${tempId}.mp4`);
   const opts     = parseOpts(req.body);
+
+  // Wenn keine Source-URL explizit gesetzt ist und es sich um YouTube handelt,
+  // die Video-URL automatisch als Source-URL verwenden.
+  if (!opts.webinarSourceUrl && parsed.platform === 'youtube') {
+    opts.webinarSourceUrl = parsed.url;
+  }
 
   setP(jobId, 1, 1, 'Job angenommen…');
   res.status(202).json({ jobId, status: 'accepted', platform: parsed.platform });

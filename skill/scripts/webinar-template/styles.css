@@ -99,6 +99,17 @@ a:hover { color: var(--accent-secondary); }
   color: var(--text-secondary);
   font-size: var(--text-sm);
 }
+.header-title .subtitle .source-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  margin-left: 4px;
+  font-weight: 500;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 120ms ease;
+}
+.header-title .subtitle .source-link:hover {
+  border-bottom-color: var(--accent-primary);
+}
 .site-nav {
   display: flex;
   gap: 6px;

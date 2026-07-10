@@ -42,6 +42,7 @@ const TITLE      = argv('title', 'Webinar');
 const TRANSCRIPT = argv('transcript');
 const TEMPLATE   = argv('template', path.join(path.dirname(new URL(import.meta.url).pathname), 'webinar-template'));
 const MODEL      = argv('model', 'claude-haiku-4-5-20251001');
+const SOURCE_URL = argv('source-url', '');
 const CONCURRENCY = parseInt(argv('concurrency', '8'), 10);
 const FPS = 1;
 const SIM_THRESHOLD = 10;
@@ -535,7 +536,7 @@ const html = `<!DOCTYPE html>
   <div class="header-inner">
     <div class="header-title">
       <h1>${esc(TITLE)}</h1>
-      <p class="subtitle">Generiert ${esc(generated)} · ${slides.length} Folien</p>
+      <p class="subtitle">Generiert ${esc(generated)} · ${slides.length} Folien${SOURCE_URL ? ` · <a class="source-link" href="${esc(SOURCE_URL)}" target="_blank" rel="noopener">Original-Video ansehen ↗</a>` : ''}</p>
     </div>
     <nav class="site-nav">
       ${execSummary       ? '<a href="#overview">Overview</a>' : ''}
@@ -626,7 +627,7 @@ const html = `<!DOCTYPE html>
   </section>` : ''}
 
   <footer class="site-footer">
-    <p>Generiert ${esc(generated)} · ${slides.length} Slides aus ${analyzed.length} Vision-Kandidaten</p>
+    <p>Generiert ${esc(generated)}</p>
     <p class="muted">Keine externen Requests. Fonts, Bilder und Skript liegen lokal. DSGVO-konform.</p>
   </footer>
 
