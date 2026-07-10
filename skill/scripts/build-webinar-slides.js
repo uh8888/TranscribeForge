@@ -192,6 +192,17 @@ Wichtige Regeln:
 - Keine Halluzinationen. Wenn du unsicher bist, schreibe knappe Fakten.
 - Bewerte, ob der wichtigste Text auf dieser Folie bei einer Ausgabegröße von 1280×720 Pixel und JPEG-Qualität 82 noch bequem lesbar ist. readable_at_1280=true wenn nur Headline/große Aufzählungen; readable_at_1280=false wenn kleiner Fließtext, dichte Tabellen, feine Diagrammbeschriftungen oder Screenshots mit Feinstruktur. Im Zweifel bei textlastigen Folien: readable_at_1280=false.`;
 
+// Wenn Anthropic hart ablehnt (Credit-Balance, Auth, Rate-Limit), brechen wir
+// den GESAMTEN Run ab, damit keine leere Site deployed wird und die Frames
+// für einen Re-Run erhalten bleiben.
+let fatalApiError = null;
+function isFatalApiError(e) {
+  const status = e?.status || e?.statusCode || e?.response?.status;
+  if (status === 400 || status === 401 || status === 403 || status === 429) return true;
+  const msg = String(e?.message || '');
+  return /credit balance|authentication|invalid.*api.*key|rate.?limit/i.test(msg);
+}
+
 async function analyze(item) {
   const imgPath = path.join(FRAMES_FULL, item.file);
   const b64 = fs.readFileSync(imgPath).toString('base64');
@@ -214,6 +225,7 @@ async function analyze(item) {
     if (typeof parsed.readable_at_1280 !== 'boolean') parsed.readable_at_1280 = true;
     return { ...item, ...parsed, tokens_in: r.usage.input_tokens, tokens_out: r.usage.output_tokens };
   } catch (e) {
+    if (isFatalApiError(e) && !fatalApiError) fatalApiError = e;
     return { ...item, error: e.message };
   }
 }
@@ -221,6 +233,7 @@ const analyzed = new Array(candidates.length);
 let done = 0, next = 0;
 async function worker() {
   while (next < candidates.length) {
+    if (fatalApiError) return; // Abbruch, laufende Worker beenden sich
     const i = next++;
     analyzed[i] = await analyze(candidates[i]);
     done++;
@@ -231,6 +244,11 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+if (fatalApiError) {
+  const msg = `Vision-API fatal: ${fatalApiError.message}. Frames bleiben unter ${FRAMES_FULL} für Re-Run.`;
+  emit({ phase: 'error', message: msg });
+  throw new Error(msg);
+}
 const totalIn = analyzed.reduce((s,r)=>s+(r.tokens_in||0),0);
 const totalOut = analyzed.reduce((s,r)=>s+(r.tokens_out||0),0);
 const costEK = totalIn/1_000_000 + totalOut*5/1_000_000;
@@ -747,13 +765,18 @@ fs.writeFileSync(path.join(OUT_DIR, 'site_data.json'), JSON.stringify({
   slides
 }, null, 2));
 
-// cleanup tmp
-try {
-  for (const f of fs.readdirSync(FRAMES_FULL)) fs.unlinkSync(path.join(FRAMES_FULL, f));
-  fs.rmdirSync(FRAMES_FULL);
-  fs.unlinkSync(RAW_GRAY);
-  fs.rmdirSync(TMP);
-} catch {}
+// cleanup tmp — NUR wenn Vision erfolgreich war (slides > 0) UND kein fataler
+// API-Fehler auftrat. Sonst bleiben Frames für Re-Run erhalten.
+if (slides.length > 0 && !fatalApiError) {
+  try {
+    for (const f of fs.readdirSync(FRAMES_FULL)) fs.unlinkSync(path.join(FRAMES_FULL, f));
+    fs.rmdirSync(FRAMES_FULL);
+    fs.unlinkSync(RAW_GRAY);
+    fs.rmdirSync(TMP);
+  } catch {}
+} else {
+  log(`Cleanup übersprungen: slides=${slides.length}, fatalApiError=${fatalApiError ? 'yes' : 'no'}. Frames bleiben unter ${FRAMES_FULL}.`);
+}
 
 emit({ phase: 'render', pct: 100, label: 'Site fertig' });
 emit({ phase: 'done', result: {
