@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
-import fs, { createReadStream, existsSync, mkdirSync, unlinkSync, statSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import fs, { createReadStream, existsSync, mkdirSync, unlinkSync, statSync, readdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { Readable } from 'node:stream';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -1204,6 +1204,81 @@ app.post('/api/transcribe-url', (req, res) => {
       safeUnlink(destPath);
     }
   })();
+});
+
+// ── POST /api/hq-augment/:slug  (HD-Nachlauf-Frames für bestehendes Webinar) ─
+// Nimmt eine Multipart-Payload mit `hq_frames[]` (JPEGs) entgegen und schreibt sie
+// in webinare/<slug>/assets/frames_hq/. Danach werden site_data.json und
+// index.html per patch-site-hq.js chirurgisch aktualisiert (hq_available=true,
+// class „has-hq", hq-badge, SLIDES-JS-const).
+//
+// Dateinamen der Uploads MÜSSEN mit den Slide-Filenames im site_data.json
+// übereinstimmen (z.B. `frame_00042.jpg`) — der Client rendert die HQ-Frames
+// aus dem selektiven Video-Nachlauf mit exakt diesen Basenames.
+const HQ_UPLOAD_DIR = join(__dirname, 'uploads-hq');
+mkdirSync(HQ_UPLOAD_DIR, { recursive: true });
+const hqStorage = multer.diskStorage({
+  destination: HQ_UPLOAD_DIR,
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const ext = (file.originalname.split('.').pop() || 'jpg').toLowerCase();
+    cb(null, `hq-${unique}.${ext}`);
+  },
+});
+const hqUpload = multer({
+  storage: hqStorage,
+  limits: { fileSize: 15 * 1024 * 1024, files: 200 },
+  fileFilter: (_req, file, cb) => {
+    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+    cb(null, ['jpg', 'jpeg', 'png'].includes(ext));
+  },
+});
+
+app.post('/api/hq-augment/:slug', hqUpload.array('hq_frames', 200), async (req, res) => {
+  const slug = String(req.params.slug || '').trim();
+  if (!/^[a-z0-9-]{1,80}$/.test(slug)) {
+    for (const f of req.files || []) safeUnlink(f.path);
+    return res.status(400).json({ error: 'Ungültiger Slug (nur a-z0-9-).' });
+  }
+  const siteDir = join(__dirname, 'webinare', slug);
+  if (!existsSync(join(siteDir, 'index.html')) || !existsSync(join(siteDir, 'site_data.json'))) {
+    for (const f of req.files || []) safeUnlink(f.path);
+    return res.status(404).json({ error: `Webinar-Site "${slug}" nicht gefunden.` });
+  }
+  const files = req.files || [];
+  if (files.length === 0) {
+    return res.status(400).json({ error: 'Keine hq_frames[] hochgeladen.' });
+  }
+
+  const hqDir = join(siteDir, 'assets', 'frames_hq');
+  mkdirSync(hqDir, { recursive: true });
+
+  const writtenNames = [];
+  try {
+    for (const f of files) {
+      const targetName = String(f.originalname || '').split(/[\\/]/).pop();
+      if (!targetName || !/^[a-zA-Z0-9._-]+$/.test(targetName)) {
+        throw new Error(`Ungültiger Dateiname: ${f.originalname}`);
+      }
+      const target = join(hqDir, targetName);
+      renameSync(f.path, target);
+      writtenNames.push(targetName);
+    }
+
+    const { patchSiteHq } = await import('./skill/scripts/patch-site-hq.js');
+    const result = patchSiteHq(siteDir, writtenNames);
+
+    res.json({
+      slug,
+      publicUrl: `https://transcribeforge.hiltmann.cloud/webinare/${slug}/`,
+      uploaded: writtenNames.length,
+      ...result,
+    });
+  } catch (err) {
+    console.error('HQ-Augment-Fehler:', err);
+    for (const f of files) safeUnlink(f.path);
+    res.status(500).json({ error: err?.message || 'Interner Fehler beim HQ-Nachlauf.' });
+  }
 });
 
 app.listen(PORT, () => console.log(`TranscribeForge läuft auf http://localhost:${PORT}`));
