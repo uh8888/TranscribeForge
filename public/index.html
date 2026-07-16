@@ -852,12 +852,36 @@
       return null;
     }
 
+    let probeTimer = null;
+    let lastProbedUrl = '';
+    async function probeUrlAndFillWebinar(url) {
+      if (url === lastProbedUrl) return;
+      lastProbedUrl = url;
+      try {
+        const r = await fetch('/api/video/probe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        if (!r.ok) return;
+        const { title } = await r.json();
+        if (!title) return;
+        const webT = document.getElementById('webinarTitleInput');
+        const webS = document.getElementById('webinarSlugInput');
+        if (webT && !webT.value) webT.value = title;
+        if (webS && !webS.value) webS.value = slugify(title);
+      } catch {}
+    }
+
     urlInput.addEventListener('input', () => {
       const platform = detectPlatform(urlInput.value);
       if (platform) {
         urlPlatformIcon.textContent = platform.icon;
         urlDetected.textContent     = '✓ ' + platform.label;
         urlDetected.classList.add('visible');
+        clearTimeout(probeTimer);
+        const url = urlInput.value.trim();
+        probeTimer = setTimeout(() => probeUrlAndFillWebinar(url), 600);
       } else {
         urlPlatformIcon.textContent = '🌐';
         urlDetected.classList.remove('visible');
@@ -907,6 +931,11 @@
       }
       if (webinarCheck.checked && selectedFile && !webinarTitleInput.value) {
         webinarTitleInput.value = selectedFile.name.replace(/\.[^.]+$/, '');
+      }
+      // Beim Aktivieren im URL-Tab: probe URL falls valide
+      if (webinarCheck.checked && activeTab === 'url' && detectPlatform(urlInput.value)) {
+        lastProbedUrl = '';  // force re-probe
+        probeUrlAndFillWebinar(urlInput.value.trim());
       }
     });
     // Live-Sanitize

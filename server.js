@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
-import { createReadStream, existsSync, mkdirSync, unlinkSync, statSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import fs, { createReadStream, existsSync, mkdirSync, unlinkSync, statSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { Readable } from 'node:stream';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { join, dirname } from 'path';
@@ -587,7 +588,34 @@ function ytDlpAuthArgs() {
   return potArg;
 }
 
+async function downloadViaMacProxy(url, destPath, onProgress, formatId) {
+  const proxyUrl = process.env.MAC_PROXY_URL;
+  const token = process.env.MAC_PROXY_TOKEN;
+  onProgress?.('Video wird über Mac-Proxy geladen…');
+  const format = formatId || '18';
+  const res = await fetch(`${proxyUrl}/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ url, format }),
+  });
+  if (!res.ok) throw new Error(`Mac-Proxy HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+  const fileStream = fs.createWriteStream(destPath);
+  await new Promise((resolve, reject) => {
+    Readable.fromWeb(res.body).pipe(fileStream).on('finish', resolve).on('error', reject);
+  });
+  const stat = fs.statSync(destPath);
+  if (stat.size < 1024) throw new Error(`Mac-Proxy-Download zu klein: ${stat.size} Bytes`);
+}
+
 async function downloadWithYtDlp(url, destPath, onProgress, formatId) {
+  const isYoutube = /youtube\.com|youtu\.be/.test(url);
+  if (isYoutube && process.env.MAC_PROXY_URL && process.env.MAC_PROXY_TOKEN) {
+    try {
+      return await downloadViaMacProxy(url, destPath, onProgress, formatId);
+    } catch (e) {
+      onProgress?.(`Mac-Proxy fehlgeschlagen (${e.message.slice(0,120)}), fallback yt-dlp direkt…`);
+    }
+  }
   onProgress?.('Video wird heruntergeladen…');
   const fmt = formatId && /^[\w+./@-]+$/.test(formatId)
     ? formatId
@@ -596,6 +624,33 @@ async function downloadWithYtDlp(url, destPath, onProgress, formatId) {
     `-f "${fmt}" --merge-output-format mp4 -o "${destPath}" "${url}"`;
   await execAsync(cmd, { timeout: 600_000 });
 }
+
+// ── POST /api/video/probe — schneller Metadata-Fetch (Title, Duration) ──────
+app.post('/api/video/probe', async (req, res) => {
+  const url = (req.body?.url || '').trim();
+  if (!/^https?:\/\//.test(url)) return res.status(400).json({ error: 'Ungültige URL.' });
+  const isYoutube = /youtube\.com|youtu\.be/.test(url);
+  if (isYoutube && process.env.MAC_PROXY_URL && process.env.MAC_PROXY_TOKEN) {
+    try {
+      const r = await fetch(`${process.env.MAC_PROXY_URL}/probe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.MAC_PROXY_TOKEN}` },
+        body: JSON.stringify({ url }),
+      });
+      const data = await r.json();
+      if (r.ok) return res.json(data);
+    } catch {}
+  }
+  try {
+    const cmd = `yt-dlp --no-playlist --no-warnings --skip-download --print "%(title)s|%(duration)s|%(id)s" ${ytDlpAuthArgs()} "${url}"`;
+    const { stdout } = await execAsync(cmd, { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+    const [title = '', duration = '', id = ''] = stdout.trim().split('|');
+    res.json({ title, duration: Number(duration) || 0, id });
+  } catch (e) {
+    const msg = (e.stderr || e.message || '').toString();
+    res.status(500).json({ error: msg.slice(-300) });
+  }
+});
 
 // ── POST /api/video/formats — list available formats (YouTube + Vimeo) ──────
 app.post('/api/video/formats', async (req, res) => {

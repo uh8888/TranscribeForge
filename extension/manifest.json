@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "TranscribeForge YouTube Sync",
+  "version": "1.0.0",
+  "description": "Sendet deine YouTube-Login-Cookies an TranscribeForge — 1-Klick statt DevTools.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://transcribeforge.hiltmann.cloud/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "transcribeforge-sync@hiltmann.cloud",
+      "strict_min_version": "115.0"
+    }
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TranscribeForge YouTube Sync",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
